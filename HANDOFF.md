@@ -1,7 +1,7 @@
 # Project Handoff: Head-Fi for Android (`org.headfi.app`)
 
 ## 1. Executive Summary
-**Head-Fi for Android** is a native Kotlin + Jetpack Compose Android client for browsing [Head-Fi.org](https://www.head-fi.org/). It wraps Head-Fi's XenForo 2.3 platform inside a **Material 3 Expressive / Material You** adaptive shell with guaranteed login persistence across app restarts and Android device reboots, custom dark/AMOLED web styling, ad/tracker blocking, multi-photo uploads, and a **monochrome Head-Fi vector adaptive launcher icon**.
+- **Head-Fi for Android** is a native Kotlin + Jetpack Compose Android client for browsing [Head-Fi.org](https://www.head-fi.org/). It wraps Head-Fi's XenForo 2.3 platform inside a **Material 3 Expressive / Material You** adaptive shell with guaranteed login persistence across app restarts and Android device reboots, custom dark/AMOLED web styling, ad/tracker blocking, background unread notifications, reading and layout controls (text size, Mobile/Desktop site layout, Data Saver), multi-photo uploads with camera capture, and a **monochrome Head-Fi vector adaptive launcher icon**.
 
 ---
 
@@ -46,7 +46,7 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
 - **Sign-in prompt**: a dismissible card appears at the top of the page whenever the user has neither a live session nor a `xf_user` cookie. Previously the only sign-in entry point was an icon inside the account sheet, behind an auto-hiding app bar.
 - **Scroll-to-top FAB** only appears once the user is more than 300 px down the page.
 - **Member shortcuts in the overflow menu**: Watched Threads, Conversations and Bookmarks (shown only when signed in), so they are reachable without opening the account sheet.
-  - Supports **PullToRefreshBox**, **Predictive Back (`BackHandler`)**, a native **Search Dialog** (`SearchHeadFiDialog.kt`) with quick sub-forum chips, and a **Scroll-to-Top FAB**.
+- Also supports **pull-to-refresh** (see D), **Predictive Back (`BackHandler`)** — which closes the find-in-page bar before it pops history — a native **Search Dialog** (`SearchHeadFiDialog.kt`) with quick sub-forum chips, and a **Scroll-to-Top FAB** that only appears past 300 px.
 - **`AccountAndSettingsSheet.kt`**:
   - Material 3 `ModalBottomSheet` displaying current session status, Sign In / Log Out actions, quick member links (**Alerts**, **Private Messages**, **Watched Threads**, **Bookmarks**, **Articles**), and live appearance toggles.
 - **`Theme.kt`**:
@@ -63,6 +63,7 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
 
 ### D. WebView Enhancements, File Uploads & Ad Blocker
 - **Pull to refresh**: `HeadFiWebView` wraps the `WebView` in an Android `SwipeRefreshLayout` inside the `AndroidView` factory. This is deliberate — `SwipeRefreshLayout` is a ViewGroup that intercepts the drag in `onInterceptTouchEvent` *before* the WebView sees it and asks the child whether it can scroll up. Compose's `PullToRefreshBox` (which this replaced) relies on nested scroll, and a raw `AndroidView` child does not feed scroll back into the Compose chain, so the gesture frequently never fires for a WebView. The spinner is cleared from `onPageFinished`, `onProgressChanged` (>= 100) and `onReceivedError`, and is ignored while a load is already in flight.
+- **`HeadFiWebView` must hold the `WebView` in Compose state, not a plain local `var`** (`var webViewInstance by remember { mutableStateOf<WebView?>(null) }`). A plain local `var` is re-initialised to `null` on *every* recomposition of `HeadFiWebView`, while the `AndroidView` factory runs only once — so after the first recomposition the settings-driven `LaunchedEffect`s (dark CSS, ad blocker, header hiding, text zoom, site layout) all silently ran against `null` and did nothing. This was live for several releases and is invisible except that a settings toggle appears to have no effect until the page is reloaded. Do not "simplify" this back to a local var.
 - **Cloudflare Turnstile Compatibility (`HeadFiWebView.kt`)**:
   - Strips `; wv` and `Version/X.X` tokens from the WebView `userAgentString` so Cloudflare Turnstile challenges and login flows treat the client as standard Chrome Mobile.
   - `AdBlockEngine.kt` explicitly allowlists `challenges.cloudflare.com`, `cloudflare.com`, and `cdn.head-fi.org` while blocking 30+ third-party ad/tracker domains.
@@ -118,8 +119,8 @@ F:\AI stuff\HeadFi-Org\
         │   ├── data/
         │   │   └── SessionPreferencesRepository.kt
         │   ├── model/
-        │   │   ├── HeadFiSection.kt
-        │   │   └── UserSessionState.kt
+        │   │   ├── HeadFiSection.kt        # 5 nav destinations + QuickDestination (member URLs)
+        │   │   └── UserSessionState.kt     # AppPreferences, ThemeMode, PollInterval, TextSize, SiteLayout
         │   ├── ui/
         │   │   ├── HeadFiAppScreen.kt
         │   │   ├── MainViewModel.kt
@@ -169,7 +170,8 @@ F:\AI stuff\HeadFi-Org\
   - Gradle 8.11.1 wrapper distribution is cached in `%USERPROFILE%\.gradle\wrapper\dists`
 - User-scope environment variables were written (`JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, plus `java`/`platform-tools`/`cmdline-tools` on `Path`), so new terminals resolve them automatically. They are **not** inherited by already-running processes.
 - `.\gradlew.bat assembleDebug assembleRelease` **passes** as of this handoff: both APKs build, the release APK keeps `UnreadPollWorker` unobfuscated (verified in `mapping.txt` and in `classes.dex`), and the merged manifest contains `WorkManagerInitializer`, `POST_NOTIFICATIONS`, and the `FileProvider` authority.
-- Note: `gradlew` (the Unix shell script) lost its executable bit, which broke a previous Linux CI run. Windows builds are unaffected.
+- Note: `gradlew` (the Unix shell script) must keep its executable bit — it was briefly committed as `100644`, which broke a Linux CI run, and was fixed in `ee3b4b0`. Windows builds are unaffected either way, so this is easy to regress by accident on a Windows checkout.
+- **Nothing added since v1.2.0 has been verified on a real device or emulator.** `adb devices` is empty and no emulator is installed. Every claim below is compile-verified only: the local `assembleDebug assembleRelease` passes and CI publishes the APK, but runtime behaviour of the pull-to-refresh gesture, find-in-page, the new Reading & Layout controls, the offline banner and camera capture is untested. Treat section 5's checklist as work to be done, not work that has been confirmed.
 
 ### How to Build & Test in Android Studio
 1. Open `F:\AI stuff\HeadFi-Org` in **Android Studio Ladybug (2024.2.1) or newer**.
@@ -195,9 +197,46 @@ F:\AI stuff\HeadFi-Org\
    - Pick a 15-minute interval, force-stop the app, and trigger an unread alert/PM from another device or the desktop site.
    - Within ~15 minutes a notification should appear; tapping it should deep-link into `/account/alerts` or `/conversations/`.
    - Read the alert in the app and confirm the notification disappears.
+8. **Verify Pull-to-Refresh** (highest regression risk — see the SwipeRefreshLayout note in D):
+   - Open any thread, scroll to the very top, and drag down. The refresh spinner should appear and the page should reload.
+   - Scroll down ~1 screen and drag down again — the gesture must **not** trigger, because the child can still scroll up.
+   - Pull to refresh while a page is still loading — it should be ignored, not queue a second load.
+   - Watch that the spinner actually disappears when the page settles (it is cleared from three separate callbacks for this reason).
+9. **Verify Find in Page**:
+   - Open a long thread, then overflow menu → **Find in Page**. The keyboard should come up automatically.
+   - Type a common word (e.g. "the") — the `n/m` counter should count up and match the page.
+   - Step forward and backward past the last match; it should wrap or stop, not crash.
+   - Press system back — the find bar should close and the highlight should clear **before** the WebView goes back in history. Pressing back a second time should then navigate back.
+   - Search for a string that does not exist — the counter should read `0/0` and the step buttons should be disabled.
+10. **Verify Reading & Layout** (`AccountAndSettingsSheet` -> **Reading & Layout**):
+    - **Text size**: step through Small → Extra large. Body text should rescale without a reload; confirm it also survives a page navigation and an app restart (it is persisted).
+    - **Site layout**: switch to Desktop. The page should reload and serve the desktop site; confirm the desktop nav renders and that flipping back to Mobile restores it. Note this reloads the page, so scroll position is lost — verify that is tolerable in practice.
+    - **Data Saver**: enable it and reload. Images should disappear but layout, CSS and scripts must keep working (if the page goes unstyled, the `Accept`-header heuristic in `isImageRequest()` is too aggressive).
+    - **Hide Head-Fi's own header**: enable it and confirm the site's duplicate top bar is gone and the app's own top bar is unaffected. Disable it again to confirm it is reversible.
+11. **Verify Offline Handling**:
+    - With the app open on a loaded page, enable airplane mode and navigate to a new section. A **banner** with a Retry button should appear and the previous page should still be visible and readable behind it — it must not go full-screen.
+    - Cold-start the app in airplane mode. The **full-screen** error should appear instead, since there is no page behind it.
+    - Tap Retry after re-enabling the network and confirm it recovers.
+12. **Verify the Sign-In Prompt & Permission Feedback**:
+    - Sign out (or clear the app's data). A sign-in prompt card should appear at the top of the page and the overflow menu's member shortcuts should be hidden.
+    - Tap Sign in and confirm it lands on `/login/` with "Stay logged in" pre-checked (see A).
+    - Dismiss the prompt and confirm it does not reappear until the process is restarted.
+    - Enable Background Unread Notifications and **deny** the notification permission. A snackbar should explain that unread alerts will not be posted and where to re-enable them. Confirm the toggle's state is still coherent afterwards.
+13. **Verify the Smart Bars Still Behave** (regression check for the `webViewInstance` state change in D):
+    - With a page loaded, open the account sheet and toggle dark mode / ad blocker / header hiding *without* reloading the page. The change should take effect immediately. If nothing happens, the `LaunchedEffect` in `HeadFiWebView.kt` is running against a null `WebView` again.
 
 ### Potential Future Enhancements
 - **Suppress notifications while the app is in the foreground** — e.g. via `ProcessLifecycleOwner` (`androidx.lifecycle:lifecycle-process`) so an alert that arrives while the user is actively reading doesn't also raise a notification.
 - **Per-thread / watched-thread notifications** — the poller currently only looks at global alert and conversation counts; scraping `/watched/threads` would allow notifying on replies to specific threads.
 - **Manual "Check now" action** — a `OneTimeWorkRequest` triggered from the account sheet so users can force an immediate refresh instead of waiting for the interval.
 - **Notification grouping** — combine the alerts and conversations notifications into a single summary group when both fire in the same run.
+
+### Known Debt & Rough Edges
+- **`WebView.FindListener` is deprecated as of API 33.** Find-in-page still uses it (with `@Suppress("DEPRECATION")`) to get the match count, and there is no clean replacement — the modern API is `findAllAsync`/`findNext` plus your own DOM query. It works today, but it will need reworking.
+- **Site-layout switching reloads the page**, so flipping to Desktop mid-thread loses scroll position. Unavoidable given how User-Agents work; could be softened by preserving the scroll offset across the reload.
+- **The sign-in prompt is session-scoped only.** It is a `remember { mutableStateOf(true) }`, so it reappears on every cold start until the user signs in. Persisting the dismissal would be friendlier.
+- **Denied notification permission only raises a snackbar.** There is no path to app settings, so the user has to find it themselves; an intent to `ACTION_APPLICATION_DETAILS_SETTINGS` would close that loop.
+- **Text zoom and Data Saver are applied live** to an already-loaded page, which is untested. `textZoom` in particular may need a reflow before the change is fully visible.
+- **`hideSiteHeaderFooter` is applied via injected CSS on every page load**, so it costs a JS round-trip per navigation. Fine at this size, worth revisiting if more CSS-driven settings accumulate.
+- **Only five navigation destinations exist.** Member shortcuts were added to the overflow menu instead of a sixth nav item; if the account area grows, a dedicated destination would surface them better than a menu.
+- **The offline banner has no connectivity listener**, so "Retry" is the only recovery path — it will not clear itself when the network comes back.
