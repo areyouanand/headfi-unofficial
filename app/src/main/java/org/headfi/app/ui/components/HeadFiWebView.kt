@@ -38,7 +38,6 @@ fun HeadFiWebView(
     enableDarkCss: Boolean,
     amoledBlack: Boolean,
     adBlockerEnabled: Boolean,
-    hideSiteHeaderFooter: Boolean,
     textScale: Float,
     loadImages: Boolean,
     desktopMode: Boolean,
@@ -71,13 +70,12 @@ fun HeadFiWebView(
     }
 
     // Re-apply CSS / JS enhancements whenever appearance settings toggle
-    LaunchedEffect(enableDarkCss, amoledBlack, adBlockerEnabled, hideSiteHeaderFooter) {
+    LaunchedEffect(enableDarkCss, amoledBlack, adBlockerEnabled) {
         webViewInstance?.evaluateJavascript(
             HeadFiScripts.buildPageEnhancementScript(
                 enableDarkCss = enableDarkCss,
                 amoledBlack = amoledBlack,
-                adBlockerEnabled = adBlockerEnabled,
-                hideSiteHeaderFooter = hideSiteHeaderFooter
+                adBlockerEnabled = adBlockerEnabled
             ),
             null
         )
@@ -287,8 +285,7 @@ fun HeadFiWebView(
                             HeadFiScripts.buildPageEnhancementScript(
                                 enableDarkCss = enableDarkCss,
                                 amoledBlack = amoledBlack,
-                                adBlockerEnabled = adBlockerEnabled,
-                                hideSiteHeaderFooter = hideSiteHeaderFooter
+                                adBlockerEnabled = adBlockerEnabled
                             ),
                             null
                         )
@@ -307,8 +304,7 @@ fun HeadFiWebView(
                             HeadFiScripts.buildPageEnhancementScript(
                                 enableDarkCss = enableDarkCss,
                                 amoledBlack = amoledBlack,
-                                adBlockerEnabled = adBlockerEnabled,
-                                hideSiteHeaderFooter = hideSiteHeaderFooter
+                                adBlockerEnabled = adBlockerEnabled
                             ),
                             null
                         )

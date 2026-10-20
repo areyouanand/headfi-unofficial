@@ -31,7 +31,7 @@ class SessionPreferencesRepository(private val context: Context) {
         val AMOLED_BLACK = booleanPreferencesKey("amoled_black")
         val INJECT_WEB_DARK = booleanPreferencesKey("inject_web_dark")
         val AD_BLOCKER = booleanPreferencesKey("ad_blocker")
-        val HIDE_SITE_CHROME = booleanPreferencesKey("hide_site_chrome")
+        val BLOCK_IMAGES = booleanPreferencesKey("block_images")
         val REMEMBER_LAST_PAGE = booleanPreferencesKey("remember_last_page")
         val LAST_VISITED_URL = stringPreferencesKey("last_visited_url")
         val SAVED_USERNAME = stringPreferencesKey("saved_username")
@@ -40,7 +40,6 @@ class SessionPreferencesRepository(private val context: Context) {
         val UNREAD_NOTIFICATIONS = booleanPreferencesKey("unread_notifications")
         val POLL_INTERVAL = stringPreferencesKey("poll_interval")
         val TEXT_SIZE = stringPreferencesKey("text_size")
-        val BLOCK_IMAGES = booleanPreferencesKey("block_images")
         val SITE_LAYOUT = stringPreferencesKey("site_layout")
         val LAST_NOTIFIED_ALERTS = intPreferencesKey("last_notified_alerts")
         val LAST_NOTIFIED_CONVERSATIONS = intPreferencesKey("last_notified_conversations")
@@ -54,7 +53,6 @@ class SessionPreferencesRepository(private val context: Context) {
             amoledBlack = prefs[Keys.AMOLED_BLACK] ?: false,
             injectWebDarkTheme = prefs[Keys.INJECT_WEB_DARK] ?: true,
             adBlockerEnabled = prefs[Keys.AD_BLOCKER] ?: true,
-            hideSiteHeaderFooter = prefs[Keys.HIDE_SITE_CHROME] ?: false,
             rememberLastPage = prefs[Keys.REMEMBER_LAST_PAGE] ?: true,
             lastVisitedUrl = prefs[Keys.LAST_VISITED_URL] ?: "https://www.head-fi.org/",
             savedUsername = prefs[Keys.SAVED_USERNAME] ?: "",
@@ -87,10 +85,6 @@ class SessionPreferencesRepository(private val context: Context) {
 
     suspend fun setAdBlockerEnabled(enabled: Boolean) {
         context.dataStore.edit { it[Keys.AD_BLOCKER] = enabled }
-    }
-
-    suspend fun setHideSiteHeaderFooter(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.HIDE_SITE_CHROME] = enabled }
     }
 
     suspend fun setRememberLastPage(enabled: Boolean) {

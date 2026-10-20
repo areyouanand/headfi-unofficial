@@ -13,8 +13,7 @@ object HeadFiScripts {
     fun buildPageEnhancementScript(
         enableDarkCss: Boolean,
         amoledBlack: Boolean,
-        adBlockerEnabled: Boolean,
-        hideSiteHeaderFooter: Boolean
+        adBlockerEnabled: Boolean
     ): String {
         val bgPrimary = if (amoledBlack) "#000000" else "#111318"
         val bgSurface = if (amoledBlack) "#0A0C10" else "#1B1E26"
@@ -145,20 +144,11 @@ object HeadFiScripts {
                     `;
                 }
 
-                if ($hideSiteHeaderFooter) {
-                    // Head-Fi renders TWO logos: one in the big <header class="p-header">
-                    // and a second one in .p-nav-smallLogo, which lives inside the
-                    // sticky .p-navSticky nav. Hiding only the header left the nav
-                    // logo sitting at the top of every page looking like a header,
-                    // so both have to go. The .p-nav itself is deliberately kept —
-                    // it is the site's real navigation.
-                    cssRules += `
-                        header.p-header, #header, .p-header-logo,
-                        .p-nav-smallLogo {
-                            display: none !important;
-                        }
-                    `;
-                }
+                // Head-Fi's own header is intentionally left alone. The app used to
+                // offer a "hide the site header" option, but the site's header is part
+                // of how Head-Fi presents itself and hiding it produced a half-hidden
+                // result (a second logo lives in the sticky nav). The app's chrome is
+                // now a single floating nav button, which is enough.
 
                 // Do not override the Cloudflare Turnstile bot challenge widget if active
                 var isBotChallenge = document.body && document.body.getAttribute('data-template') === 'hfbot_challenge_widget';

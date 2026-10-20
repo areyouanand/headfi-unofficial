@@ -98,6 +98,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,6 +109,7 @@ import org.headfi.app.model.HeadFiSection
 import org.headfi.app.model.QuickDestination
 import org.headfi.app.model.SiteLayout
 import org.headfi.app.model.ThemeMode
+import org.headfi.app.model.UserSessionState
 import org.headfi.app.ui.components.AccountAndSettingsSheet
 import org.headfi.app.ui.components.HeadFiMonochromeLogoIcon
 import org.headfi.app.ui.components.HeadFiWebView
@@ -271,256 +273,6 @@ fun HeadFiAppScreen(
         val appBody: @Composable () -> Unit = {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = {
-                AnimatedVisibility(
-                    visible = barsVisible,
-                    enter = slideInVertically(initialOffsetY = { -it }) +
-                        expandVertically(expandFrom = Alignment.Top),
-                    exit = slideOutVertically(targetOffsetY = { -it }) +
-                        shrinkVertically(shrinkTowards = Alignment.Top)
-                ) {
-                Column {
-                    TopAppBar(
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            titleContentColor = MaterialTheme.colorScheme.onSurface
-                        ),
-                        navigationIcon = {
-                            if (canGoBack) {
-                                IconButton(onClick = { webViewRef?.goBack() }) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                        contentDescription = "Back"
-                                    )
-                                }
-                            } else {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = Modifier
-                                        .padding(start = 12.dp, end = 4.dp)
-                                        .size(36.dp),
-                                    onClick = { webViewRef?.loadUrl(HeadFiSection.HOME.url) }
-                                ) {
-                                    HeadFiMonochromeLogoIcon(
-                                        size = 26.dp,
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(5.dp)
-                                    )
-                                }
-                            }
-                        },
-                        title = {
-                            Column(
-                                modifier = Modifier.padding(start = 4.dp)
-                            ) {
-                                Text(
-                                    text = pageTitle,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = if (sessionState.isLoggedIn || sessionState.hasRememberMeCookie) {
-                                        val user = sessionState.username.ifBlank {
-                                            preferences.savedUsername.ifBlank { "Signed in" }
-                                        }
-                                        "head-fi.org • $user"
-                                    } else {
-                                        "head-fi.org"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        },
-                        actions = {
-                            // Search button
-                            IconButton(onClick = { showSearchDialog = true }) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Search,
-                                    contentDescription = "Search Head-Fi"
-                                )
-                            }
-
-                            // Alerts shortcut when logged in
-                            if (sessionState.isLoggedIn || sessionState.hasRememberMeCookie) {
-                                IconButton(
-                                    onClick = {
-                                        webViewRef?.loadUrl("https://www.head-fi.org/account/alerts")
-                                    }
-                                ) {
-                                    BadgedBox(
-                                        badge = {
-                                            if (sessionState.totalUnread > 0) {
-                                                Badge {
-                                                    Text(sessionState.totalUnread.toString())
-                                                }
-                                            }
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Notifications,
-                                            contentDescription = "Alerts & Messages"
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Expressive Account / Login pill button
-                            FilledTonalIconButton(
-                                onClick = { showAccountSheet = true },
-                                modifier = Modifier.padding(end = 2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (sessionState.isLoggedIn || sessionState.hasRememberMeCookie) {
-                                        Icons.Outlined.Person
-                                    } else {
-                                        Icons.AutoMirrored.Outlined.Login
-                                    },
-                                    contentDescription = "Account & Settings"
-                                )
-                            }
-
-                            // Overflow menu
-                            Box {
-                                IconButton(onClick = { showOverflowMenu = true }) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.MoreVert,
-                                        contentDescription = "More options"
-                                    )
-                                }
-
-                                DropdownMenu(
-                                    expanded = showOverflowMenu,
-                                    onDismissRequest = { showOverflowMenu = false },
-                                    shape = MaterialTheme.shapes.large
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Refresh Page") },
-                                        leadingIcon = {
-                                            Icon(Icons.Outlined.Refresh, contentDescription = null)
-                                        },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            webViewRef?.reload()
-                                        }
-                                    )
-                                    if (canGoForward) {
-                                        DropdownMenuItem(
-                                            text = { Text("Go Forward") },
-                                            leadingIcon = {
-                                                Icon(
-                                                    Icons.AutoMirrored.Outlined.ArrowForward,
-                                                    contentDescription = null
-                                                )
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                webViewRef?.goForward()
-                                            }
-                                        )
-                                    }
-                                    DropdownMenuItem(
-                                        text = { Text("Find in Page") },
-                                        leadingIcon = {
-                                            Icon(Icons.Outlined.Search, contentDescription = null)
-                                        },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            findInPageVisible = true
-                                        }
-                                    )
-                                    if (sessionState.isLoggedIn || sessionState.hasRememberMeCookie) {
-                                        HorizontalDivider()
-                                        DropdownMenuItem(
-                                            text = { Text(QuickDestination.WATCHED_THREADS.label) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    Icons.Outlined.Visibility,
-                                                    contentDescription = null
-                                                )
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                webViewRef?.loadUrl(QuickDestination.WATCHED_THREADS.url)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(QuickDestination.CONVERSATIONS.label) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    Icons.Outlined.MailOutline,
-                                                    contentDescription = null
-                                                )
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                webViewRef?.loadUrl(QuickDestination.CONVERSATIONS.url)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(QuickDestination.BOOKMARKS.label) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    Icons.Outlined.BookmarkBorder,
-                                                    contentDescription = null
-                                                )
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                webViewRef?.loadUrl(QuickDestination.BOOKMARKS.url)
-                                            }
-                                        )
-                                    }
-                                    DropdownMenuItem(
-                                        text = { Text("Share Thread / Page") },
-                                        leadingIcon = {
-                                            Icon(Icons.Outlined.Share, contentDescription = null)
-                                        },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            DownloadAndShareHelper.sharePage(
-                                                context = context,
-                                                title = pageTitle,
-                                                url = currentUrl
-                                            )
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Open in External Browser") },
-                                        leadingIcon = {
-                                            Icon(Icons.Outlined.OpenInBrowser, contentDescription = null)
-                                        },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            DownloadAndShareHelper.openInCustomTab(context, currentUrl)
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    )
-
-                    AnimatedVisibility(
-                        visible = isLoading && loadProgress in 1..99,
-                        enter = fadeIn(),
-                        exit = fadeOut()
-                    ) {
-                        LinearProgressIndicator(
-                            progress = { loadProgress / 100f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(3.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                        )
-                    }
-                }
-                }
-            },
             floatingActionButton = {
                 // Only offer "scroll to top" once there is somewhere to scroll
                 // back from.
@@ -554,7 +306,6 @@ fun HeadFiAppScreen(
                     enableDarkCss = isDarkActive && preferences.injectWebDarkTheme,
                     amoledBlack = preferences.amoledBlack,
                     adBlockerEnabled = preferences.adBlockerEnabled,
-                    hideSiteHeaderFooter = preferences.hideSiteHeaderFooter,
                     textScale = preferences.textSize.scale,
                     loadImages = !preferences.blockImages,
                     desktopMode = preferences.siteLayout == SiteLayout.DESKTOP,
@@ -586,6 +337,205 @@ fun HeadFiAppScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Slim loading indicator pinned to the very top edge. It used to
+                // live inside the app bar; with a floating bar there is no full-width
+                // surface to hang it on, so it sits on the top edge of the WebView.
+                AnimatedVisibility(
+                    visible = isLoading && loadProgress in 1..99,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.align(Alignment.TopCenter)
+                ) {
+                    LinearProgressIndicator(
+                        progress = { loadProgress / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    )
+                }
+
+                // Floating navigation button. This replaces the old full-width app
+                // bar: it carries only page navigation and the overflow menu, and it
+                // floats over the WebView instead of pushing it down. It hides and
+                // returns with the same smart-scroll behaviour as the old bar.
+                // Everything else moved - profile to the end of the bottom bar,
+                // search into the overflow menu - and the site's own header is left
+                // alone so it renders the way Head-Fi intends.
+                AnimatedVisibility(
+                    visible = barsVisible,
+                    enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 12.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 3.dp,
+                        shadowElevation = 6.dp
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            if (canGoBack) {
+                                IconButton(onClick = { webViewRef?.goBack() }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                        contentDescription = "Back"
+                                    )
+                                }
+                            } else {
+                                IconButton(
+                                    onClick = { webViewRef?.loadUrl(HeadFiSection.HOME.url) }
+                                ) {
+                                    HeadFiMonochromeLogoIcon(
+                                        size = 24.dp,
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                            if (canGoForward) {
+                                IconButton(onClick = { webViewRef?.goForward() }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                                        contentDescription = "Forward"
+                                    )
+                                }
+                            }
+                            Box {
+                                IconButton(onClick = { showOverflowMenu = true }) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.MoreVert,
+                                        contentDescription = "More options"
+                                    )
+                                }
+
+                                    DropdownMenu(
+                                        expanded = showOverflowMenu,
+                                        onDismissRequest = { showOverflowMenu = false },
+                                        shape = MaterialTheme.shapes.large
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Refresh Page") },
+                                            leadingIcon = {
+                                                Icon(Icons.Outlined.Refresh, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                webViewRef?.reload()
+                                            }
+                                        )
+                                        if (canGoForward) {
+                                            DropdownMenuItem(
+                                                text = { Text("Go Forward") },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.AutoMirrored.Outlined.ArrowForward,
+                                                        contentDescription = null
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showOverflowMenu = false
+                                                    webViewRef?.goForward()
+                                                }
+                                            )
+                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("Search Head-Fi") },
+                                            leadingIcon = {
+                                                Icon(Icons.Outlined.Search, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                showSearchDialog = true
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Find in Page") },
+                                            leadingIcon = {
+                                                Icon(Icons.Outlined.Search, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                findInPageVisible = true
+                                            }
+                                        )
+                                        if (sessionState.isLoggedIn || sessionState.hasRememberMeCookie) {
+                                            HorizontalDivider()
+                                            DropdownMenuItem(
+                                                text = { Text(QuickDestination.WATCHED_THREADS.label) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Outlined.Visibility,
+                                                        contentDescription = null
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showOverflowMenu = false
+                                                    webViewRef?.loadUrl(QuickDestination.WATCHED_THREADS.url)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(QuickDestination.CONVERSATIONS.label) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Outlined.MailOutline,
+                                                        contentDescription = null
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showOverflowMenu = false
+                                                    webViewRef?.loadUrl(QuickDestination.CONVERSATIONS.url)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(QuickDestination.BOOKMARKS.label) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Outlined.BookmarkBorder,
+                                                        contentDescription = null
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showOverflowMenu = false
+                                                    webViewRef?.loadUrl(QuickDestination.BOOKMARKS.url)
+                                                }
+                                            )
+                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("Share Thread / Page") },
+                                            leadingIcon = {
+                                                Icon(Icons.Outlined.Share, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                DownloadAndShareHelper.sharePage(
+                                                    context = context,
+                                                    title = pageTitle,
+                                                    url = currentUrl
+                                                )
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Open in External Browser") },
+                                            leadingIcon = {
+                                                Icon(Icons.Outlined.OpenInBrowser, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                DownloadAndShareHelper.openInCustomTab(context, currentUrl)
+                                            }
+                                        )
+                                    }
+                            }
+                        }
+                    }
+                }
 
                 // Sign-in prompt: the app's whole value proposition (persistent
                 // login, unread badges, background notifications) is invisible
@@ -805,6 +755,36 @@ fun HeadFiAppScreen(
                                 }
                             )
                         }
+                            // Profile moved here from the old app bar. It sits at the
+                            // end of the bar and carries the unread badge, so the
+                            // alert count is still visible without a top-bar button.
+                            NavigationRailItem(
+                                selected = false,
+                                onClick = { showAccountSheet = true },
+                                icon = {
+                                    BadgedBox(
+                                        badge = {
+                                            if (sessionState.totalUnread > 0) {
+                                                Badge {
+                                                    Text(sessionState.totalUnread.toString())
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = profileIconFor(sessionState),
+                                            contentDescription = "Account & Settings"
+                                        )
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = profileLabelFor(sessionState),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1
+                                    )
+                                }
+                            )
                     }
                 }
                 Box(modifier = Modifier.weight(1f)) {
@@ -847,6 +827,36 @@ fun HeadFiAppScreen(
                                 }
                             )
                         }
+                            // Profile moved here from the old app bar. It sits at the
+                            // end of the bar and carries the unread badge, so the
+                            // alert count is still visible without a top-bar button.
+                            NavigationBarItem(
+                                selected = false,
+                                onClick = { showAccountSheet = true },
+                                icon = {
+                                    BadgedBox(
+                                        badge = {
+                                            if (sessionState.totalUnread > 0) {
+                                                Badge {
+                                                    Text(sessionState.totalUnread.toString())
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = profileIconFor(sessionState),
+                                            contentDescription = "Account & Settings"
+                                        )
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = profileLabelFor(sessionState),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1
+                                    )
+                                }
+                            )
                     }
                 }
             }
@@ -875,7 +885,6 @@ fun HeadFiAppScreen(
             onRememberLastPageChange = viewModel::setRememberLastPage,
             onUnreadNotificationsChange = onUnreadNotificationsToggled,
             onPollIntervalChange = viewModel::setPollInterval,
-            onHideSiteHeaderFooterChange = viewModel::setHideSiteHeaderFooter,
             onTextSizeChange = viewModel::setTextSize,
             onBlockImagesChange = viewModel::setBlockImages,
             onSiteLayoutChange = viewModel::setSiteLayout
@@ -1080,3 +1089,19 @@ private class SmartBarScrollTracker {
 
 /** Below this scroll offset the "scroll to top" FAB has nothing to do. */
 private const val FAB_VISIBILITY_THRESHOLD_PX = 300
+
+/**
+ * Icon for the profile entry that now lives at the end of the bottom bar.
+ * Shows a login glyph until a session exists, so a signed-out user can still
+ * find the way in.
+ */
+private fun profileIconFor(session: UserSessionState): ImageVector =
+    if (session.isLoggedIn || session.hasRememberMeCookie) {
+        Icons.Outlined.Person
+    } else {
+        Icons.AutoMirrored.Outlined.Login
+    }
+
+/** Label for the bottom-bar profile entry. */
+private fun profileLabelFor(session: UserSessionState): String =
+    if (session.isLoggedIn || session.hasRememberMeCookie) "Account" else "Sign in"

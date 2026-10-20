@@ -67,7 +67,6 @@ data class AppPreferences(
     val amoledBlack: Boolean = false,
     val injectWebDarkTheme: Boolean = true,
     val adBlockerEnabled: Boolean = true,
-    val hideSiteHeaderFooter: Boolean = false,
     val rememberLastPage: Boolean = true,
     val lastVisitedUrl: String = "https://www.head-fi.org/",
     val savedUsername: String = "",

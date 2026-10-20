@@ -193,10 +193,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.setRememberLastPage(enabled) }
     }
 
-    fun setHideSiteHeaderFooter(enabled: Boolean) {
-        viewModelScope.launch { repository.setHideSiteHeaderFooter(enabled) }
-    }
-
     fun setTextSize(size: TextSize) {
         viewModelScope.launch { repository.setTextSize(size) }
     }

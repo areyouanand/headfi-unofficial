@@ -28,7 +28,6 @@ import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.WebAsset
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -80,7 +79,6 @@ fun AccountAndSettingsSheet(
     onRememberLastPageChange: (Boolean) -> Unit,
     onUnreadNotificationsChange: (Boolean) -> Unit,
     onPollIntervalChange: (PollInterval) -> Unit,
-    onHideSiteHeaderFooterChange: (Boolean) -> Unit,
     onTextSizeChange: (TextSize) -> Unit,
     onBlockImagesChange: (Boolean) -> Unit,
     onSiteLayoutChange: (SiteLayout) -> Unit
@@ -369,17 +367,10 @@ fun AccountAndSettingsSheet(
                     checked = preferences.rememberLastPage,
                     onCheckedChange = onRememberLastPageChange
                 )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-
-                SettingToggleRow(
-                    icon = Icons.Outlined.WebAsset,
-                    title = "Hide Head-Fi's Own Header",
-                    subtitle = "Removes the site's duplicate top bar — the app already has one, " +
-                        "so this reclaims vertical space on every page",
-                    checked = preferences.hideSiteHeaderFooter,
-                    onCheckedChange = onHideSiteHeaderFooterChange
-                )
+                // "Hide Head-Fi's own header" was removed deliberately: the site's
+                // header is part of how Head-Fi presents itself, so the app now
+                // leaves it alone and relies on its own floating nav button for
+                // chrome instead.
             }
 
             // Background Unread Notifications
