@@ -27,9 +27,10 @@ Grab the latest APK from the [**Releases**](https://github.com/areyouanand/headf
 
 - **Login that survives reboots** — dual-layer cookie persistence (native `CookieManager` SQLite flush + a DataStore vault that re-injects `xf_*`/`cf_*` cookies on cold boot). "Stay logged in" is auto-checked so the long-lived `xf_user` cookie is always issued.
 - **XenForo session bridge** — username, avatar, unread alerts and conversations show up natively in the top bar and account sheet.
-- **Material 3 Expressive shell** — bottom navigation bar on phones, navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, find-in-page, native search dialog, scroll-to-top FAB.
-- **Smart auto-hiding toolbars** — the top app bar and bottom navigation slide away while you scroll down to read and slide back the moment you scroll up (always visible near the top of a page).
-- **Reading & layout controls** — four text-size steps, a Mobile/Desktop site-layout switch, a Data Saver that skips images on a metered connection, and an option to hide Head-Fi's own header to reclaim vertical space.
+- **Material 3 Expressive shell** — bottom navigation bar on phones, navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, find-in-page, search, scroll-to-top FAB.
+- **Floating round nav button** — the app bar is a single rounded button that floats over the page instead of pushing it down. It carries only page navigation and the overflow menu, and still slides away while you read and returns when you scroll up. Your profile button lives at the end of the bottom bar with your unread badge on it.
+- **Smart auto-hiding toolbars** — the floating nav button and the bottom navigation slide away while you scroll down to read and slide back the moment you scroll up (always visible near the top of a page).
+- **Reading & layout controls** — four text-size steps, a Mobile/Desktop site-layout switch, and a Data Saver that skips images on a metered connection.
 - **Find in page** — inline search bar with a live match counter and previous/next stepping; system back closes it before it pops history.
 - **Sign-in prompt** — a dismissible prompt appears until you're signed in, since persistent login, unread badges and background notifications are all invisible without a session.
 - **Background unread notifications** — an opt-in WorkManager poller re-checks Head-Fi with your saved `xf_user` cookie (keeping the session warm while the app is closed) and raises a native notification when new alerts or private messages arrive. Choose between 15-minute and 3-hour intervals.
