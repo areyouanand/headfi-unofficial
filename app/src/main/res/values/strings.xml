@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Head-Fi (Unofficial)</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_forums">Forums</string>
+    <string name="nav_whats_new">What\'s New</string>
+    <string name="nav_head_gear">Head Gear</string>
+    <string name="nav_classifieds">Classifieds</string>
+    <string name="action_search">Search Head-Fi</string>
+    <string name="action_login">Log in</string>
+    <string name="action_account">Account &amp; Session</string>
+    <string name="action_alerts">Alerts</string>
+    <string name="action_messages">Messages</string>
+    <string name="action_watched">Watched Threads</string>
+    <string name="action_bookmarks">Bookmarks</string>
+    <string name="action_settings">App Settings</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_share">Share Page</string>
+    <string name="action_open_browser">Open in Browser</string>
+</resources>
