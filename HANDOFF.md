@@ -77,7 +77,8 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
   - **Text size** — `WebSettings.textZoom`, applied live without a reload. Four steps (85 % / 100 % / 115 % / 130 %).
   - **Site layout** — a segmented Mobile / Desktop select. Desktop mode swaps in a desktop Chrome User-Agent and reloads, because the server only sees the UA on the next request.
   - **Data Saver** — drops image requests in `shouldInterceptRequest` by extension and `Accept` header, leaving stylesheets and scripts alone. Applied live.
-  - **Hide Head-Fi's own header** — exposes the previously unreachable `hideSiteHeaderFooter` preference; it was fully implemented and plumbed through but had no UI, so it could never be turned on.
+    - This branch **must** be keyed off `loadImages`, never off `adBlockerEnabled`. It shipped in v1.3.0 keyed off `adBlockerEnabled`, which is on by default, so it returned an empty response for every image on every page. Head-Fi's CDN is allowlisted in `AdBlockEngine`, so the blocklist was never the cause — the symptom is "the whole site is text".
+  - **Hide Head-Fi's own header** — hides the site's duplicate chrome. Head-Fi renders **two** logos: one in `<header class="p-header">` and a second in `.p-nav-smallLogo` inside the sticky `.p-navSticky` nav. Both must be targeted or the nav logo survives and looks like a header. `.p-nav` itself is deliberately left visible, since it carries the site's real navigation (Forums, Articles, Sponsors, search, account).
 - **Offline handling**: a connection failure only takes over the whole screen while no page has loaded yet. Once something has rendered, it degrades to a top banner with a Retry button so the user keeps the page they were reading.
 - **Notification permission**: if the user denies `POST_NOTIFICATIONS`, a snackbar explains what broke and where to re-enable it. Previously the toggle flipped on and then silently did nothing.
 
@@ -211,8 +212,8 @@ F:\AI stuff\HeadFi-Org\
 10. **Verify Reading & Layout** (`AccountAndSettingsSheet` -> **Reading & Layout**):
     - **Text size**: step through Small → Extra large. Body text should rescale without a reload; confirm it also survives a page navigation and an app restart (it is persisted).
     - **Site layout**: switch to Desktop. The page should reload and serve the desktop site; confirm the desktop nav renders and that flipping back to Mobile restores it. Note this reloads the page, so scroll position is lost — verify that is tolerable in practice.
-    - **Data Saver**: enable it and reload. Images should disappear but layout, CSS and scripts must keep working (if the page goes unstyled, the `Accept`-header heuristic in `isImageRequest()` is too aggressive).
-    - **Hide Head-Fi's own header**: enable it and confirm the site's duplicate top bar is gone and the app's own top bar is unaffected. Disable it again to confirm it is reversible.
+    - **Data Saver**: with it **off** (the default), confirm images load at all — this is the check that catches a mis-keyed block. Then enable it and reload: images should disappear but layout, CSS and scripts must keep working. (If the page goes unstyled, the `Accept`-header heuristic in `isImageRequest()` is too aggressive.)
+    - **Hide Head-Fi's own header**: enable it and confirm **both** the big `<header class="p-header">` and the smaller logo inside the sticky nav (`.p-nav-smallLogo`) are gone, with no Head-Fi wordmark left at the top. The site's `.p-nav` navigation should remain. Disable it again to confirm it is reversible.
 11. **Verify Offline Handling**:
     - With the app open on a loaded page, enable airplane mode and navigate to a new section. A **banner** with a Retry button should appear and the previous page should still be visible and readable behind it — it must not go full-screen.
     - Cold-start the app in airplane mode. The **full-screen** error should appear instead, since there is no page behind it.
