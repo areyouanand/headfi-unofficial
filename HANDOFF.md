@@ -170,14 +170,15 @@ F:\AI stuff\HeadFi-Org\
   - Android SDK: `.toolchain/android-sdk` — `platforms;android-35`, `build-tools;35.0.0`, `platform-tools`, `cmdline-tools/latest`, licenses accepted
   - Gradle 8.11.1 wrapper distribution is cached in `%USERPROFILE%\.gradle\wrapper\dists`
 - User-scope environment variables were written (`JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, plus `java`/`platform-tools`/`cmdline-tools` on `Path`), so new terminals resolve them automatically. They are **not** inherited by already-running processes.
-- `.\gradlew.bat assembleDebug assembleRelease` **passes** as of this handoff: both APKs build, the release APK keeps `UnreadPollWorker` unobfuscated (verified in `mapping.txt` and in `classes.dex`), and the merged manifest contains `WorkManagerInitializer`, `POST_NOTIFICATIONS`, and the `FileProvider` authority.
+- `.\gradlew.bat assembleDebug assembleRelease` **passes** as of this handoff (v1.3.1): both APKs build, the release APK keeps `UnreadPollWorker` unobfuscated (verified in `mapping.txt` and in `classes.dex`), and the merged manifest contains `WorkManagerInitializer`, `POST_NOTIFICATIONS`, and the `FileProvider` authority.
+- **The app is running on a real device, and that has already paid off twice.** Two regressions shipped in v1.3.0 and were reported from actual use, not from a test run: images not loading anywhere (Data Saver keyed off the ad-blocker flag instead of `loadImages`), and "hide the site header" leaving Head-Fi's second logo in the sticky nav visible. Both are fixed in v1.3.1 — see section D.
+- **Most of the v1.3.0 feature set is still compile-verified only.** No emulator is installed and no systematic device pass has been done. Runtime behaviour that remains unconfirmed: the pull-to-refresh gesture, find-in-page, the offline banner, camera capture, and the live application of text zoom and Data Saver. Treat those checklist items as work still to be done.
 - Note: `gradlew` (the Unix shell script) must keep its executable bit — it was briefly committed as `100644`, which broke a Linux CI run, and was fixed in `ee3b4b0`. Windows builds are unaffected either way, so this is easy to regress by accident on a Windows checkout.
-- **Nothing added since v1.2.0 has been verified on a real device or emulator.** `adb devices` is empty and no emulator is installed. Every claim below is compile-verified only: the local `assembleDebug assembleRelease` passes and CI publishes the APK, but runtime behaviour of the pull-to-refresh gesture, find-in-page, the new Reading & Layout controls, the offline banner and camera capture is untested. Treat section 5's checklist as work to be done, not work that has been confirmed.
 
 ### How to Build & Test in Android Studio
 1. Open `F:\AI stuff\HeadFi-Org` in **Android Studio Ladybug (2024.2.1) or newer**.
 2. Android Studio will pick up the SDK from the existing `local.properties` (`sdk.dir=F:/AI stuff/HeadFi-Org/.toolchain/android-sdk`) and the JDK from `JAVA_HOME`. Run **Sync Project with Gradle Files**.
-3. Run the `app` configuration on an emulator or physical Android device (API 26–35). No device is currently attached (`adb devices` is empty).
+3. Run the `app` configuration on an emulator or physical Android device (API 26–35). No emulator is installed on this workstation, so a physical device is the practical option.
 4. **Verify Login Persistence**:
    - Tap the top-right Sign In button (`AccountAndSettingsSheet` -> **Sign In to Head-Fi.org**).
    - Log in with your Head-Fi credentials.

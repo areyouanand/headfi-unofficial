@@ -1,7 +1,7 @@
 # Head-Fi for Android (Unofficial)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/areyouanand/headfi-unofficial?label=APK%20release)](../../releases/latest)
+[![Release](https://img.shields.io/github/v/release/areyouanand/headfi-unofficial?label=APK%20release)](https://github.com/areyouanand/headfi-unofficial/releases/latest)
 
 > **⚠️ Unofficial app — built for personal convenience.**
 > This is a free, unofficial Android client for browsing [Head-Fi.org](https://www.head-fi.org/).
@@ -12,11 +12,11 @@
 
 ---
 
-A native **Kotlin + Jetpack Compose** client that wraps Head-Fi's XenForo 2.3 platform in a **Material 3 Expressive / Material You** adaptive shell, with guaranteed login persistence across app restarts and device reboots, custom dark/AMOLED styling, ad/tracker blocking, multi-photo uploads with camera capture, background unread notifications, and a monochrome Head-Fi adaptive icon.
+A native **Kotlin + Jetpack Compose** client that wraps Head-Fi's XenForo 2.3 platform in a **Material 3 Expressive** adaptive shell, with guaranteed login persistence across app restarts and device reboots, custom dark/AMOLED styling, ad/tracker blocking, background unread notifications, reading and layout controls, multi-photo uploads with camera capture, and a monochrome Head-Fi adaptive icon.
 
 ## 📥 Download
 
-Grab the latest APK from the [**Releases**](../../releases) page: `HeadFi-vX.Y.Z.apk`.
+Grab the latest APK from the [**Releases**](https://github.com/areyouanand/headfi-unofficial/releases) page: `HeadFi-vX.Y.Z.apk`.
 
 - **Requires:** Android 8.0+ — best experience on **Android 12+** (themed icon, gesture navigation).
 - **Install:** open the downloaded APK and allow "install unknown apps" for your browser when prompted.
@@ -27,14 +27,17 @@ Grab the latest APK from the [**Releases**](../../releases) page: `HeadFi-vX.Y.Z
 
 - **Login that survives reboots** — dual-layer cookie persistence (native `CookieManager` SQLite flush + a DataStore vault that re-injects `xf_*`/`cf_*` cookies on cold boot). "Stay logged in" is auto-checked so the long-lived `xf_user` cookie is always issued.
 - **XenForo session bridge** — username, avatar, unread alerts and conversations show up natively in the top bar and account sheet.
-- **Material 3 Expressive shell** — bottom navigation bar on phones, navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, native search dialog, scroll-to-top FAB.
+- **Material 3 Expressive shell** — bottom navigation bar on phones, navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, find-in-page, native search dialog, scroll-to-top FAB.
 - **Smart auto-hiding toolbars** — the top app bar and bottom navigation slide away while you scroll down to read and slide back the moment you scroll up (always visible near the top of a page).
+- **Reading & layout controls** — four text-size steps, a Mobile/Desktop site-layout switch, a Data Saver that skips images on a metered connection, and an option to hide Head-Fi's own header to reclaim vertical space.
+- **Find in page** — inline search bar with a live match counter and previous/next stepping; system back closes it before it pops history.
+- **Sign-in prompt** — a dismissible prompt appears until you're signed in, since persistent login, unread badges and background notifications are all invisible without a session.
 - **Background unread notifications** — an opt-in WorkManager poller re-checks Head-Fi with your saved `xf_user` cookie (keeping the session warm while the app is closed) and raises a native notification when new alerts or private messages arrive. Choose between 15-minute and 3-hour intervals.
-- **Camera capture for uploads** — the attachment picker offers *Camera* alongside the file picker, so you can snap photos directly for forum posts and Classifieds listings.
+- **Camera capture & multi-photo uploads** — the attachment picker offers *Camera* alongside the file picker for forum posts and Classifieds listings, and supports selecting several photos at once.
 - **Theming** — fixed Head-Fi color scheme that mirrors the site's own palette for consistent readability (light/dark/system plus a pure AMOLED black override).
 - **Cloudflare Turnstile friendly** — WebView user agent is scrubbed so challenges treat it as standard Chrome Mobile; Cloudflare/CDN domains are allowlisted while 30+ ad/tracker domains are blocked.
-- **Multi-photo uploads** — file chooser supports multiple selection for forum attachments and Classifieds listings.
 - **Image save & share** — long-press any image to save it via `DownloadManager` (with authenticated cookies) or share its URL.
+- **Offline resilience** — losing your connection mid-session shows a Retry banner over the page you were reading rather than blanking it; the full-screen error is reserved for a failed first load.
 - **Monochrome adaptive icon** — vector Head-Fi headphone mark, works as an Android 13+ themed icon.
 
 ## 🔧 Building it yourself
