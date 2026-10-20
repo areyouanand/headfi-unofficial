@@ -1,5 +1,8 @@
 # Head-Fi for Android (Unofficial)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/areyouanand/headfi-unofficial?label=APK%20release)](../../releases/latest)
+
 > **⚠️ Unofficial app — built for personal convenience.**
 > This is a free, unofficial Android client for browsing [Head-Fi.org](https://www.head-fi.org/).
 > It is **not** affiliated with, endorsed by, sponsored by, or connected to Head-Fi.org,
@@ -49,6 +52,15 @@ Open the project in Android Studio (Ladybug or newer), or from the command line:
 ### About the committed signing key
 
 `keystore/headfi-release.keystore` is committed on purpose. This is an unofficial, personal-convenience project with no store presence — the key exists purely so releases keep a stable signature and can update in place. It is not a secret worth protecting, and it must never be used to sign anything for distribution on Google Play.
+
+## ⚖️ License
+
+The code in this repository is released under the **[MIT License](LICENSE)** — free to use, fork, modify, and redistribute, including commercially.
+
+Two things sit outside that license:
+
+- **Head-Fi trademarks** — the "Head-Fi" name, logo, and related marks belong to Head-Fi.org and are not covered by the MIT grant (see the trademark notice in `LICENSE`). Forks must carry their own unofficial disclaimer.
+- **The Head-Fi.org site itself** — this client only displays publicly available pages; the community and its content belong to Head-Fi.org.
 
 ## 🙏 Acknowledgements
 
