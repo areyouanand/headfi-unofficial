@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.headfi.app.model.AppPreferences
 import org.headfi.app.model.PollInterval
+import org.headfi.app.model.SiteLayout
+import org.headfi.app.model.TextSize
 import org.headfi.app.model.ThemeMode
 import org.json.JSONArray
 import org.json.JSONObject
@@ -37,6 +39,9 @@ class SessionPreferencesRepository(private val context: Context) {
         val COOKIE_BACKUP_JSON = stringPreferencesKey("cookie_backup_json")
         val UNREAD_NOTIFICATIONS = booleanPreferencesKey("unread_notifications")
         val POLL_INTERVAL = stringPreferencesKey("poll_interval")
+        val TEXT_SIZE = stringPreferencesKey("text_size")
+        val BLOCK_IMAGES = booleanPreferencesKey("block_images")
+        val SITE_LAYOUT = stringPreferencesKey("site_layout")
         val LAST_NOTIFIED_ALERTS = intPreferencesKey("last_notified_alerts")
         val LAST_NOTIFIED_CONVERSATIONS = intPreferencesKey("last_notified_conversations")
     }
@@ -54,7 +59,10 @@ class SessionPreferencesRepository(private val context: Context) {
             lastVisitedUrl = prefs[Keys.LAST_VISITED_URL] ?: "https://www.head-fi.org/",
             savedUsername = prefs[Keys.SAVED_USERNAME] ?: "",
             unreadNotificationsEnabled = prefs[Keys.UNREAD_NOTIFICATIONS] ?: false,
-            pollInterval = PollInterval.fromName(prefs[Keys.POLL_INTERVAL])
+            pollInterval = PollInterval.fromName(prefs[Keys.POLL_INTERVAL]),
+            textSize = TextSize.fromName(prefs[Keys.TEXT_SIZE]),
+            blockImages = prefs[Keys.BLOCK_IMAGES] ?: false,
+            siteLayout = SiteLayout.fromName(prefs[Keys.SITE_LAYOUT])
         )
     }
 
@@ -95,6 +103,18 @@ class SessionPreferencesRepository(private val context: Context) {
 
     suspend fun setPollInterval(interval: PollInterval) {
         context.dataStore.edit { it[Keys.POLL_INTERVAL] = interval.name }
+    }
+
+    suspend fun setTextSize(size: TextSize) {
+        context.dataStore.edit { it[Keys.TEXT_SIZE] = size.name }
+    }
+
+    suspend fun setBlockImages(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.BLOCK_IMAGES] = enabled }
+    }
+
+    suspend fun setSiteLayout(layout: SiteLayout) {
+        context.dataStore.edit { it[Keys.SITE_LAYOUT] = layout.name }
     }
 
     /**

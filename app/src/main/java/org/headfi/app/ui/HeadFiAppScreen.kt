@@ -40,7 +40,11 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.OpenInBrowser
@@ -49,14 +53,19 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.VerticalAlignTop
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -65,29 +74,39 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 import org.headfi.app.model.HeadFiSection
+import org.headfi.app.model.QuickDestination
+import org.headfi.app.model.SiteLayout
 import org.headfi.app.model.ThemeMode
 import org.headfi.app.ui.components.AccountAndSettingsSheet
 import org.headfi.app.ui.components.HeadFiMonochromeLogoIcon
@@ -114,13 +133,23 @@ fun HeadFiAppScreen(
     val canGoBack by viewModel.canGoBack.collectAsState()
     val canGoForward by viewModel.canGoForward.collectAsState()
     val networkError by viewModel.networkError.collectAsState()
+    val hasLoadedPage by viewModel.hasLoadedPage.collectAsState()
 
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var longPressedImageUrl by remember { mutableStateOf<String?>(null) }
-    var isPullRefreshing by remember { mutableStateOf(false) }
+    var showSignInPrompt by remember { mutableStateOf(true) }
+
+    // Find-in-page state
+    var findInPageVisible by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
+    var findMatchCount by remember { mutableStateOf(0) }
+    var findActiveMatch by remember { mutableStateOf(-1) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     val systemDark = isSystemInDarkTheme()
     val isDarkActive = when (preferences.themeMode) {
@@ -139,21 +168,33 @@ fun HeadFiAppScreen(
         }
     }
 
-    LaunchedEffect(isLoading) {
-        if (!isLoading) {
-            isPullRefreshing = false
-        }
-    }
-
     // Predictive Back Gesture handling for WebView history
-    BackHandler(enabled = canGoBack) {
-        webViewRef?.goBack()
+    BackHandler(enabled = canGoBack || findInPageVisible) {
+        if (findInPageVisible) {
+            webViewRef?.clearMatches()
+            findInPageVisible = false
+            findQuery = ""
+            findMatchCount = 0
+            findActiveMatch = -1
+        } else {
+            webViewRef?.goBack()
+        }
     }
 
     // Runtime notification permission (Android 13+) for the background poller
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* Nothing to do: the worker checks areNotificationsEnabled() itself */ }
+    ) { granted ->
+        if (!granted) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    message = "Notifications are blocked, so unread alerts won't be posted. " +
+                        "Enable them in Android Settings > Apps > Head-Fi > Notifications.",
+                    duration = SnackbarDuration.Long
+                )
+            }
+        }
+    }
 
     val onUnreadNotificationsToggled: (Boolean) -> Unit = { enabled ->
         viewModel.setUnreadNotificationsEnabled(enabled)
@@ -173,10 +214,33 @@ fun HeadFiAppScreen(
     var barsVisible by remember { mutableStateOf(true) }
     val barScrollTracker = remember { SmartBarScrollTracker() }
 
+    // Last known document scroll offset, used to hide the scroll-to-top FAB
+    // while the user is already near the top of the page.
+    var lastScrollY by remember { mutableStateOf(0) }
+
     // A freshly loaded page always starts with the bars visible
     LaunchedEffect(currentUrl, isLoading) {
         barScrollTracker.reset()
         barsVisible = true
+    }
+
+    // Runs a find-in-page query and keeps the match counters in sync.
+    val runFind: (String) -> Unit = { query ->
+        webViewRef?.let { view ->
+            if (query.isBlank()) {
+                view.clearMatches()
+                findMatchCount = 0
+                findActiveMatch = -1
+            } else {
+                view.findAllAsync(query)
+            }
+        }
+    }
+
+    val stepFind: (Boolean) -> Unit = { forward ->
+        if (findMatchCount > 0) {
+            webViewRef?.findNext(forward)
+        }
     }
 
     val startUrl = remember {
@@ -206,6 +270,7 @@ fun HeadFiAppScreen(
 
         val appBody: @Composable () -> Unit = {
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 AnimatedVisibility(
                     visible = barsVisible,
@@ -359,6 +424,58 @@ fun HeadFiAppScreen(
                                         )
                                     }
                                     DropdownMenuItem(
+                                        text = { Text("Find in Page") },
+                                        leadingIcon = {
+                                            Icon(Icons.Outlined.Search, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            findInPageVisible = true
+                                        }
+                                    )
+                                    if (sessionState.isLoggedIn || sessionState.hasRememberMeCookie) {
+                                        HorizontalDivider()
+                                        DropdownMenuItem(
+                                            text = { Text(QuickDestination.WATCHED_THREADS.label) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Outlined.Visibility,
+                                                    contentDescription = null
+                                                )
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                webViewRef?.loadUrl(QuickDestination.WATCHED_THREADS.url)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(QuickDestination.CONVERSATIONS.label) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Outlined.MailOutline,
+                                                    contentDescription = null
+                                                )
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                webViewRef?.loadUrl(QuickDestination.CONVERSATIONS.url)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(QuickDestination.BOOKMARKS.label) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Outlined.BookmarkBorder,
+                                                    contentDescription = null
+                                                )
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                webViewRef?.loadUrl(QuickDestination.BOOKMARKS.url)
+                                            }
+                                        )
+                                    }
+                                    DropdownMenuItem(
                                         text = { Text("Share Thread / Page") },
                                         leadingIcon = {
                                             Icon(Icons.Outlined.Share, contentDescription = null)
@@ -405,30 +522,29 @@ fun HeadFiAppScreen(
                 }
             },
             floatingActionButton = {
-                SmallFloatingActionButton(
-                    onClick = {
-                        webViewRef?.evaluateJavascript(
-                            "window.scrollTo({top: 0, behavior: 'smooth'});",
-                            null
+                // Only offer "scroll to top" once there is somewhere to scroll
+                // back from.
+                if (lastScrollY > FAB_VISIBILITY_THRESHOLD_PX) {
+                    SmallFloatingActionButton(
+                        onClick = {
+                            webViewRef?.evaluateJavascript(
+                                "window.scrollTo({top: 0, behavior: 'smooth'});",
+                                null
+                            )
+                        },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.VerticalAlignTop,
+                            contentDescription = "Scroll to top"
                         )
-                    },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.VerticalAlignTop,
-                        contentDescription = "Scroll to top"
-                    )
+                    }
                 }
             }
         ) { innerPadding ->
-            PullToRefreshBox(
-                isRefreshing = isPullRefreshing,
-                onRefresh = {
-                    isPullRefreshing = true
-                    webViewRef?.reload()
-                },
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
@@ -439,6 +555,11 @@ fun HeadFiAppScreen(
                     amoledBlack = preferences.amoledBlack,
                     adBlockerEnabled = preferences.adBlockerEnabled,
                     hideSiteHeaderFooter = preferences.hideSiteHeaderFooter,
+                    textScale = preferences.textSize.scale,
+                    loadImages = !preferences.blockImages,
+                    desktopMode = preferences.siteLayout == SiteLayout.DESKTOP,
+                    refreshAccentColor = MaterialTheme.colorScheme.primary.toArgb(),
+                    refreshBackgroundColor = MaterialTheme.colorScheme.surface.toArgb(),
                     onWebViewReady = { webViewRef = it },
                     onUrlChanged = viewModel::onUrlChanged,
                     onTitleChanged = viewModel::onTitleChanged,
@@ -452,59 +573,200 @@ fun HeadFiAppScreen(
                         longPressedImageUrl = imageUrl
                     },
                     onWebViewScrolled = { scrollY, oldScrollY ->
+                        lastScrollY = scrollY
                         // Fed by both the WebView's OnScrollChangeListener and the
                         // page's own `scroll` listener; each passes its own delta.
                         barScrollTracker
                             .onScroll(scrollY, oldScrollY, System.currentTimeMillis())
                             ?.let { barsVisible = it }
                     },
+                    onFindMatchCount = { activeOrdinal, total ->
+                        findActiveMatch = if (total > 0) activeOrdinal else -1
+                        findMatchCount = total
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Offline / Network Error Overlay
-                if (networkError != null) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.fillMaxSize()
+                // Sign-in prompt: the app's whole value proposition (persistent
+                // login, unread badges, background notifications) is invisible
+                // until the user signs in, and the button used to be buried in
+                // the account sheet.
+                if (showSignInPrompt &&
+                    !sessionState.isLoggedIn &&
+                    !sessionState.hasRememberMeCookie
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ),
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(12.dp)
+                            .fillMaxWidth()
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(32.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                        Row(
+                            modifier = Modifier.padding(
+                                start = 16.dp,
+                                end = 8.dp,
+                                top = 12.dp,
+                                bottom = 12.dp
+                            ),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.CloudOff,
+                                imageVector = Icons.AutoMirrored.Outlined.Login,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(64.dp)
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(20.dp)
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Connection Interrupted",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = networkError ?: "Unable to reach Head-Fi.org. Check your internet connection.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Button(
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Sign in to Head-Fi",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "Keeps you logged in across reboots and " +
+                                        "enables unread notifications",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            TextButton(
                                 onClick = {
-                                    viewModel.onNetworkError(null)
-                                    webViewRef?.reload()
+                                    webViewRef?.loadUrl("https://www.head-fi.org/login/")
                                 }
                             ) {
-                                Icon(Icons.Outlined.Refresh, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Retry")
+                                Text("Sign in")
+                            }
+                            IconButton(onClick = { showSignInPrompt = false }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     }
+                }
+
+                // Connection trouble. Full-screen only when there is nothing
+                // behind it; otherwise a banner so the user can keep reading the
+                // page they were on.
+                if (networkError != null) {
+                    if (hasLoadedPage) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(12.dp)
+                                .fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(
+                                    start = 16.dp,
+                                    end = 8.dp,
+                                    top = 6.dp,
+                                    bottom = 6.dp
+                                ),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CloudOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "No connection",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(
+                                    onClick = {
+                                        viewModel.onNetworkError(null)
+                                        webViewRef?.reload()
+                                    }
+                                ) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                    } else {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CloudOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Connection Interrupted",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = networkError
+                                        ?: "Unable to reach Head-Fi.org. Check your internet connection.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Button(
+                                    onClick = {
+                                        viewModel.onNetworkError(null)
+                                        webViewRef?.reload()
+                                    }
+                                ) {
+                                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Find-in-page bar, anchored above the bottom navigation.
+                if (findInPageVisible) {
+                    FindInPageBar(
+                        query = findQuery,
+                        matchCount = findMatchCount,
+                        activeMatch = findActiveMatch,
+                        onQueryChange = { newQuery ->
+                            findQuery = newQuery
+                            runFind(newQuery)
+                        },
+                        onPrevious = { stepFind(false) },
+                        onNext = { stepFind(true) },
+                        onClose = {
+                            webViewRef?.clearMatches()
+                            findInPageVisible = false
+                            findQuery = ""
+                            findMatchCount = 0
+                            findActiveMatch = -1
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
                 }
             }
         }
@@ -612,7 +874,11 @@ fun HeadFiAppScreen(
             onAdBlockerChange = viewModel::setAdBlockerEnabled,
             onRememberLastPageChange = viewModel::setRememberLastPage,
             onUnreadNotificationsChange = onUnreadNotificationsToggled,
-            onPollIntervalChange = viewModel::setPollInterval
+            onPollIntervalChange = viewModel::setPollInterval,
+            onHideSiteHeaderFooterChange = viewModel::setHideSiteHeaderFooter,
+            onTextSizeChange = viewModel::setTextSize,
+            onBlockImagesChange = viewModel::setBlockImages,
+            onSiteLayoutChange = viewModel::setSiteLayout
         )
     }
 
@@ -669,6 +935,80 @@ fun HeadFiAppScreen(
                 }
             }
         )
+    }
+}
+
+/**
+ * Inline find-in-page bar. Uses the WebView's own `findAllAsync` / `findNext`
+ * so it matches exactly what the page renders, including text inside threads.
+ */
+@Composable
+private fun FindInPageBar(
+    query: String,
+    matchCount: Int,
+    activeMatch: Int,
+    onQueryChange: (String) -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        tonalElevation = 3.dp,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "Close find in page"
+                )
+            }
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                placeholder = { Text("Find in page") },
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+            )
+            if (matchCount > 0) {
+                Text(
+                    text = "${activeMatch + 1}/$matchCount",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            } else if (query.isNotBlank()) {
+                Text(
+                    text = "0/0",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            }
+            IconButton(onClick = onPrevious, enabled = matchCount > 0) {
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowUp,
+                    contentDescription = "Previous match"
+                )
+            }
+            IconButton(onClick = onNext, enabled = matchCount > 0) {
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = "Next match"
+                )
+            }
+        }
     }
 }
 
@@ -737,3 +1077,6 @@ private class SmartBarScrollTracker {
         private const val SETTLE_MS = 250L
     }
 }
+
+/** Below this scroll offset the "scroll to top" FAB has nothing to do. */
+private const val FAB_VISIBILITY_THRESHOLD_PX = 300

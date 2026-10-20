@@ -14,6 +14,7 @@
   - Jetpack `DataStore` Preferences (`SessionPreferencesRepository`)
   - Android `CookieManager` SQLite persistence + JSON cookie vault backup/restore
 - **Background Work**: WorkManager (`2.10.1`) `CoroutineWorker` + `PeriodicWorkRequest` for background unread polling
+- **Pull to Refresh**: `androidx.swiperefreshlayout:swiperefreshlayout:1.1.0`
 - **Web Engine**: AndroidX WebKit (`1.12.1`) + Chrome Custom Tabs (`androidx.browser:1.8.0`)
 
 ---
@@ -41,6 +42,10 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
     1. `WebView.setOnScrollChangeListener` — note that `View.OnScrollChangeListener`'s SAM signature is `(v, scrollX, scrollY, oldScrollX, oldScrollY)`; binding the vertical positions to the wrong parameters makes `scrollY` always read `0` and the bars never hide. This was the original bug.
     2. A passive `scroll` listener injected by `HeadFiScripts.kt` that reports `window.scrollY` deltas through `HeadFiJsBridge.onPageScrolled(...)`.
   - A 250 ms "settle" window after each visibility flip absorbs the scroll blip caused by the bars themselves resizing the WebView (which clamps `scrollY` at the very bottom of a page and would otherwise ping-pong the bars forever).
+- **Find in page**: overflow menu → *Find in Page* opens an inline bar driven by `WebView.findAllAsync()` / `findNext()` with a live `n/m` match counter. Predictive back closes it (and calls `clearMatches()`) before it goes back in history.
+- **Sign-in prompt**: a dismissible card appears at the top of the page whenever the user has neither a live session nor a `xf_user` cookie. Previously the only sign-in entry point was an icon inside the account sheet, behind an auto-hiding app bar.
+- **Scroll-to-top FAB** only appears once the user is more than 300 px down the page.
+- **Member shortcuts in the overflow menu**: Watched Threads, Conversations and Bookmarks (shown only when signed in), so they are reachable without opening the account sheet.
   - Supports **PullToRefreshBox**, **Predictive Back (`BackHandler`)**, a native **Search Dialog** (`SearchHeadFiDialog.kt`) with quick sub-forum chips, and a **Scroll-to-Top FAB**.
 - **`AccountAndSettingsSheet.kt`**:
   - Material 3 `ModalBottomSheet` displaying current session status, Sign In / Log Out actions, quick member links (**Alerts**, **Private Messages**, **Watched Threads**, **Bookmarks**, **Articles**), and live appearance toggles.
@@ -57,6 +62,7 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
 - Works both as an Android 13+ `<monochrome>` themed icon (tinted dynamically by the user's launcher) and as a permanent monochrome white-on-obsidian icon when themed icons are turned off.
 
 ### D. WebView Enhancements, File Uploads & Ad Blocker
+- **Pull to refresh**: `HeadFiWebView` wraps the `WebView` in an Android `SwipeRefreshLayout` inside the `AndroidView` factory. This is deliberate — `SwipeRefreshLayout` is a ViewGroup that intercepts the drag in `onInterceptTouchEvent` *before* the WebView sees it and asks the child whether it can scroll up. Compose's `PullToRefreshBox` (which this replaced) relies on nested scroll, and a raw `AndroidView` child does not feed scroll back into the Compose chain, so the gesture frequently never fires for a WebView. The spinner is cleared from `onPageFinished`, `onProgressChanged` (>= 100) and `onReceivedError`, and is ignored while a load is already in flight.
 - **Cloudflare Turnstile Compatibility (`HeadFiWebView.kt`)**:
   - Strips `; wv` and `Version/X.X` tokens from the WebView `userAgentString` so Cloudflare Turnstile challenges and login flows treat the client as standard Chrome Mobile.
   - `AdBlockEngine.kt` explicitly allowlists `challenges.cloudflare.com`, `cloudflare.com`, and `cdn.head-fi.org` while blocking 30+ third-party ad/tracker domains.
@@ -66,6 +72,13 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
   - **Camera capture**: when the field accepts images, `MediaStore.ACTION_IMAGE_CAPTURE` is offered as an `EXTRA_INITIAL_INTENTS` entry next to the document picker. The photo is written to `cacheDir/camera/headfi_<timestamp>.jpg` and shared through the existing `androidx.core.content.FileProvider` (`${applicationId}.fileprovider`). Because some camera apps report `RESULT_CANCELED` even after saving, the result handler falls back to that staged file whenever the returned intent carries no data. Staged files are pruned after 24 h and in `onDestroy()`.
 - **Image Saving (`DownloadAndShareHelper.kt`)**:
   - Long-pressing any image in a thread opens a Material 3 dialog to save the image via `DownloadManager` (passing authenticated cookies) or share its URL.
+- **Reading & layout controls** (all in `AccountAndSettingsSheet.kt` → *Reading & Layout*):
+  - **Text size** — `WebSettings.textZoom`, applied live without a reload. Four steps (85 % / 100 % / 115 % / 130 %).
+  - **Site layout** — a segmented Mobile / Desktop select. Desktop mode swaps in a desktop Chrome User-Agent and reloads, because the server only sees the UA on the next request.
+  - **Data Saver** — drops image requests in `shouldInterceptRequest` by extension and `Accept` header, leaving stylesheets and scripts alone. Applied live.
+  - **Hide Head-Fi's own header** — exposes the previously unreachable `hideSiteHeaderFooter` preference; it was fully implemented and plumbed through but had no UI, so it could never be turned on.
+- **Offline handling**: a connection failure only takes over the whole screen while no page has loaded yet. Once something has rendered, it degrades to a top banner with a Retry button so the user keeps the page they were reading.
+- **Notification permission**: if the user denies `POST_NOTIFICATIONS`, a snackbar explains what broke and where to re-enable it. Previously the toggle flipped on and then silently did nothing.
 
 ### E. Background Unread Notifications (WorkManager)
 - **`notifications/UnreadPollScheduler.kt`** — arms a single unique `PeriodicWorkRequest` (`headfi-unread-poll`) with `ExistingPeriodicWorkPolicy.UPDATE`, `NetworkType.CONNECTED`, and linear 10-minute backoff. Called from `HeadFiApplication.onCreate()` (re-arms after a process kill) and from `MainViewModel` whenever the user toggles the setting or changes the interval.

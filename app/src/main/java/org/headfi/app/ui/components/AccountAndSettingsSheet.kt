@@ -21,12 +21,14 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.HideImage
 import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.WebAsset
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,6 +43,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -54,6 +59,8 @@ import androidx.compose.ui.unit.dp
 import org.headfi.app.model.AppPreferences
 import org.headfi.app.model.PollInterval
 import org.headfi.app.model.QuickDestination
+import org.headfi.app.model.SiteLayout
+import org.headfi.app.model.TextSize
 import org.headfi.app.model.ThemeMode
 import org.headfi.app.model.UserSessionState
 
@@ -72,7 +79,11 @@ fun AccountAndSettingsSheet(
     onAdBlockerChange: (Boolean) -> Unit,
     onRememberLastPageChange: (Boolean) -> Unit,
     onUnreadNotificationsChange: (Boolean) -> Unit,
-    onPollIntervalChange: (PollInterval) -> Unit
+    onPollIntervalChange: (PollInterval) -> Unit,
+    onHideSiteHeaderFooterChange: (Boolean) -> Unit,
+    onTextSizeChange: (TextSize) -> Unit,
+    onBlockImagesChange: (Boolean) -> Unit,
+    onSiteLayoutChange: (SiteLayout) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -358,6 +369,17 @@ fun AccountAndSettingsSheet(
                     checked = preferences.rememberLastPage,
                     onCheckedChange = onRememberLastPageChange
                 )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+
+                SettingToggleRow(
+                    icon = Icons.Outlined.WebAsset,
+                    title = "Hide Head-Fi's Own Header",
+                    subtitle = "Removes the site's duplicate top bar — the app already has one, " +
+                        "so this reclaims vertical space on every page",
+                    checked = preferences.hideSiteHeaderFooter,
+                    onCheckedChange = onHideSiteHeaderFooterChange
+                )
             }
 
             // Background Unread Notifications
@@ -425,6 +447,84 @@ fun AccountAndSettingsSheet(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
+            }
+
+            // Reading & Layout
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Reading & Layout",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Text size",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                    ) {
+                        TextSize.entries.forEach { size ->
+                            FilterChip(
+                                selected = preferences.textSize == size,
+                                onClick = { onTextSizeChange(size) },
+                                label = { Text(size.label) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = "Site layout",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        SiteLayout.entries.forEachIndexed { index, layout ->
+                            SegmentedButton(
+                                selected = preferences.siteLayout == layout,
+                                onClick = { onSiteLayoutChange(layout) },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = SiteLayout.entries.size
+                                )
+                            ) {
+                                Text(layout.label)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Desktop mode asks Head-Fi for the full desktop site, which is " +
+                            "more useful on tablets and in landscape.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    SettingToggleRow(
+                        icon = Icons.Outlined.HideImage,
+                        title = "Data Saver",
+                        subtitle = "Don't load images — useful on a metered connection",
+                        checked = preferences.blockImages,
+                        onCheckedChange = onBlockImagesChange
+                    )
                 }
             }
         }

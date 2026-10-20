@@ -15,6 +15,8 @@ import org.headfi.app.data.SessionPreferencesRepository
 import org.headfi.app.model.AppPreferences
 import org.headfi.app.model.HeadFiSection
 import org.headfi.app.model.PollInterval
+import org.headfi.app.model.SiteLayout
+import org.headfi.app.model.TextSize
 import org.headfi.app.model.ThemeMode
 import org.headfi.app.model.UserSessionState
 import org.headfi.app.notifications.HeadFiNotifications
@@ -60,6 +62,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _networkError = MutableStateFlow<String?>(null)
     val networkError: StateFlow<String?> = _networkError.asStateFlow()
 
+    /**
+     * True once at least one page has finished loading. Until then there is no
+     * content behind an error, so a failure should take over the whole screen
+     * instead of just showing a banner over a blank WebView.
+     */
+    private val _hasLoadedPage = MutableStateFlow(false)
+    val hasLoadedPage: StateFlow<Boolean> = _hasLoadedPage.asStateFlow()
+
     private val _isSessionReady = MutableStateFlow(false)
     val isSessionReady: StateFlow<Boolean> = _isSessionReady.asStateFlow()
 
@@ -94,6 +104,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onLoadingStateChanged(loading: Boolean) {
         _isLoading.value = loading
+        if (!loading) {
+            _hasLoadedPage.value = true
+        }
     }
 
     fun onProgressChanged(progress: Int) {
@@ -178,6 +191,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setRememberLastPage(enabled: Boolean) {
         viewModelScope.launch { repository.setRememberLastPage(enabled) }
+    }
+
+    fun setHideSiteHeaderFooter(enabled: Boolean) {
+        viewModelScope.launch { repository.setHideSiteHeaderFooter(enabled) }
+    }
+
+    fun setTextSize(size: TextSize) {
+        viewModelScope.launch { repository.setTextSize(size) }
+    }
+
+    fun setBlockImages(enabled: Boolean) {
+        viewModelScope.launch { repository.setBlockImages(enabled) }
+    }
+
+    fun setSiteLayout(layout: SiteLayout) {
+        viewModelScope.launch { repository.setSiteLayout(layout) }
     }
 
     fun setUnreadNotificationsEnabled(enabled: Boolean) {

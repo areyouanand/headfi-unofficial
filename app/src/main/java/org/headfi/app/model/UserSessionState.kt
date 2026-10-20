@@ -23,6 +23,33 @@ enum class PollInterval(val minutes: Long, val label: String) {
     }
 }
 
+/**
+ * Text scaling for page content, applied through `WebSettings.textZoom`.
+ * Forum threads are dense, so a couple of steps up helps a lot on phones.
+ */
+enum class TextSize(val scale: Float, val label: String) {
+    SMALL(0.85f, "Small"),
+    DEFAULT(1.0f, "Default"),
+    LARGE(1.15f, "Large"),
+    EXTRA_LARGE(1.3f, "Extra large");
+
+    companion object {
+        fun fromName(name: String?): TextSize =
+            entries.firstOrNull { it.name == name } ?: DEFAULT
+    }
+}
+
+/** Which layout Head-Fi should serve: the mobile site or the desktop site. */
+enum class SiteLayout(val label: String) {
+    MOBILE("Mobile"),
+    DESKTOP("Desktop");
+
+    companion object {
+        fun fromName(name: String?): SiteLayout =
+            entries.firstOrNull { it.name == name } ?: MOBILE
+    }
+}
+
 data class UserSessionState(
     val isLoggedIn: Boolean = false,
     val username: String = "",
@@ -45,5 +72,8 @@ data class AppPreferences(
     val lastVisitedUrl: String = "https://www.head-fi.org/",
     val savedUsername: String = "",
     val unreadNotificationsEnabled: Boolean = false,
-    val pollInterval: PollInterval = PollInterval.HOUR_1
+    val pollInterval: PollInterval = PollInterval.HOUR_1,
+    val textSize: TextSize = TextSize.DEFAULT,
+    val blockImages: Boolean = false,
+    val siteLayout: SiteLayout = SiteLayout.MOBILE
 )
