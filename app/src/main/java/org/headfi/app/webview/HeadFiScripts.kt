@@ -146,8 +146,15 @@ object HeadFiScripts {
                 }
 
                 if ($hideSiteHeaderFooter) {
+                    // Head-Fi renders TWO logos: one in the big <header class="p-header">
+                    // and a second one in .p-nav-smallLogo, which lives inside the
+                    // sticky .p-navSticky nav. Hiding only the header left the nav
+                    // logo sitting at the top of every page looking like a header,
+                    // so both have to go. The .p-nav itself is deliberately kept —
+                    // it is the site's real navigation.
                     cssRules += `
-                        header.p-header, #header {
+                        header.p-header, #header, .p-header-logo,
+                        .p-nav-smallLogo {
                             display: none !important;
                         }
                     `;

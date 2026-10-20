@@ -232,7 +232,11 @@ fun HeadFiWebView(
                         view: WebView,
                         request: WebResourceRequest
                     ): WebResourceResponse? {
-                        if (adBlockerEnabled && isImageRequest(request)) {
+                        // Data Saver: drop image requests only when the user asked
+                        // for it. Note this must key off `loadImages`, NOT
+                        // `adBlockerEnabled` — the ad blocker is on by default, and
+                        // keying off it here blocked every image on every page.
+                        if (!loadImages && isImageRequest(request)) {
                             return AdBlockEngine.emptyResponse()
                         }
                         if (AdBlockEngine.shouldBlockRequest(request, adBlockerEnabled)) {
