@@ -43,6 +43,7 @@ fun HeadFiWebView(
     onSessionUpdate: (isLoggedIn: Boolean, username: String, avatarUrl: String, alerts: Int, convs: Int) -> Unit,
     onFileChooserRequested: (ValueCallback<Array<Uri>>, WebChromeClient.FileChooserParams?) -> Boolean,
     onImageLongPressed: (String) -> Unit,
+    onWebViewScrolled: (scrollY: Int, oldScrollY: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var webViewInstance: WebView? = null
@@ -102,6 +103,11 @@ fun HeadFiWebView(
                     HeadFiJsBridge(onSessionUpdate = onSessionUpdate),
                     "HeadFiBridge"
                 )
+
+                // Feed raw scroll positions to the smart auto-hide toolbar logic
+                setOnScrollChangeListener { _, scrollY, _, _, oldScrollY ->
+                    onWebViewScrolled(scrollY, oldScrollY)
+                }
 
                 setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
                     DownloadAndShareHelper.downloadFileOrImage(

@@ -35,11 +35,12 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
   - Uses `NavigationSuiteScaffold` to automatically render a Material 3 **NavigationBar** on compact phones and a **NavigationRail** on tablets/foldables/landscape.
   - Top-level sections: **Home** (`/`), **Forums** (`/forums/`), **What's New** (`/whats-new/posts/`), **Head Gear** (`/showcase/`), and **Classifieds** (`/classifieds/`).
   - Tapping the currently active bottom navigation item smoothly scrolls the page to the top or reloads the section root.
+  - **Smart auto-hiding toolbars**: the top app bar and bottom navigation bar (or rail) slide out of view while scrolling down and slide back in on upward scroll, with hysteresis so small jitters don't toggle them (`SmartBarScrollTracker` in `HeadFiAppScreen.kt`). Bars are always visible near the top of a page and re-appear on page load.
   - Supports **PullToRefreshBox**, **Predictive Back (`BackHandler`)**, a native **Search Dialog** (`SearchHeadFiDialog.kt`) with quick sub-forum chips, and a **Scroll-to-Top FAB**.
 - **`AccountAndSettingsSheet.kt`**:
   - Material 3 `ModalBottomSheet` displaying current session status, Sign In / Log Out actions, quick member links (**Alerts**, **Private Messages**, **Watched Threads**, **Bookmarks**, **Articles**), and live appearance toggles.
 - **`Theme.kt`**:
-  - Implements Material 3 Expressive shapes (`ExpressiveShapes`), typography, Android 12+ **Material You Dynamic Color**, Light/Dark/System modes, and an optional **Pure AMOLED Black (`#000000`)** surface override.
+  - Implements Material 3 Expressive shapes (`ExpressiveShapes`), typography, a fixed Head-Fi color scheme (Light/Dark/System modes plus an optional **Pure AMOLED Black (`#000000`)** surface override). Dynamic (Material You) color was removed for readability.
 
 ### C. Monochrome Head-Fi Adaptive Icon
 - Located in:

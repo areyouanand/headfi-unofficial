@@ -69,7 +69,6 @@ class MainActivity : ComponentActivity() {
 
             HeadFiTheme(
                 themeMode = preferences.themeMode,
-                dynamicColor = preferences.dynamicColors,
                 amoledBlack = preferences.amoledBlack
             ) {
                 HeadFiAppScreen(

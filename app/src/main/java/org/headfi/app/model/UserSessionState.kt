@@ -20,7 +20,6 @@ data class UserSessionState(
 
 data class AppPreferences(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val dynamicColors: Boolean = true,
     val amoledBlack: Boolean = false,
     val injectWebDarkTheme: Boolean = true,
     val adBlockerEnabled: Boolean = true,

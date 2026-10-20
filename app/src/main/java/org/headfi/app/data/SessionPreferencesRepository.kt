@@ -24,7 +24,6 @@ class SessionPreferencesRepository(private val context: Context) {
 
     private object Keys {
         val THEME_MODE = stringPreferencesKey("theme_mode")
-        val DYNAMIC_COLORS = booleanPreferencesKey("dynamic_colors")
         val AMOLED_BLACK = booleanPreferencesKey("amoled_black")
         val INJECT_WEB_DARK = booleanPreferencesKey("inject_web_dark")
         val AD_BLOCKER = booleanPreferencesKey("ad_blocker")
@@ -41,7 +40,6 @@ class SessionPreferencesRepository(private val context: Context) {
         val themeMode = runCatching { ThemeMode.valueOf(themeStr) }.getOrDefault(ThemeMode.SYSTEM)
         AppPreferences(
             themeMode = themeMode,
-            dynamicColors = prefs[Keys.DYNAMIC_COLORS] ?: true,
             amoledBlack = prefs[Keys.AMOLED_BLACK] ?: false,
             injectWebDarkTheme = prefs[Keys.INJECT_WEB_DARK] ?: true,
             adBlockerEnabled = prefs[Keys.AD_BLOCKER] ?: true,
@@ -61,10 +59,6 @@ class SessionPreferencesRepository(private val context: Context) {
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[Keys.THEME_MODE] = mode.name }
-    }
-
-    suspend fun setDynamicColors(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.DYNAMIC_COLORS] = enabled }
     }
 
     suspend fun setAmoledBlack(enabled: Boolean) {

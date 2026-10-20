@@ -18,7 +18,7 @@ A native **Kotlin + Jetpack Compose** client that wraps Head-Fi's XenForo 2.3 pl
 
 Grab the latest APK from the [**Releases**](../../releases) page: `HeadFi-vX.Y.Z.apk`.
 
-- **Requires:** Android 8.0+ — best experience on **Android 12+** (Material You dynamic color, themed icon).
+- **Requires:** Android 8.0+ — best experience on **Android 12+** (themed icon, gesture navigation).
 - **Install:** open the downloaded APK and allow "install unknown apps" for your browser when prompted.
 - **Updates:** every release is signed with the same committed project key, so new versions install straight over old ones — no uninstall needed.
 - **Builds are automated:** pushing a tag like `v1.2.0` makes GitHub Actions build the APK and attach `HeadFi-v1.2.0.apk` to a release automatically (see [.github/workflows/release.yml](.github/workflows/release.yml)).
@@ -28,7 +28,8 @@ Grab the latest APK from the [**Releases**](../../releases) page: `HeadFi-vX.Y.Z
 - **Login that survives reboots** — dual-layer cookie persistence (native `CookieManager` SQLite flush + a DataStore vault that re-injects `xf_*`/`cf_*` cookies on cold boot). "Stay logged in" is auto-checked so the long-lived `xf_user` cookie is always issued.
 - **XenForo session bridge** — username, avatar, unread alerts and conversations show up natively in the top bar and account sheet.
 - **Material 3 Expressive shell** — bottom navigation bar on phones, navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, native search dialog, scroll-to-top FAB.
-- **Theming** — Material You dynamic color (Android 12+), light/dark/system, and a pure AMOLED black override.
+- **Smart auto-hiding toolbars** — the top app bar and bottom navigation slide away while you scroll down to read and slide back the moment you scroll up (always visible near the top of a page).
+- **Theming** — fixed Head-Fi color scheme that mirrors the site's own palette for consistent readability (light/dark/system plus a pure AMOLED black override).
 - **Cloudflare Turnstile friendly** — WebView user agent is scrubbed so challenges treat it as standard Chrome Mobile; Cloudflare/CDN domains are allowlisted while 30+ ad/tracker domains are blocked.
 - **Multi-photo uploads** — file chooser supports multiple selection for forum attachments and Classifieds listings.
 - **Image save & share** — long-press any image to save it via `DownloadManager` (with authenticated cookies) or share its URL.

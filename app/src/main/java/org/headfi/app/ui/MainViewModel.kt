@@ -148,10 +148,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.setThemeMode(mode) }
     }
 
-    fun setDynamicColors(enabled: Boolean) {
-        viewModelScope.launch { repository.setDynamicColors(enabled) }
-    }
-
     fun setAmoledBlack(enabled: Boolean) {
         viewModelScope.launch { repository.setAmoledBlack(enabled) }
     }

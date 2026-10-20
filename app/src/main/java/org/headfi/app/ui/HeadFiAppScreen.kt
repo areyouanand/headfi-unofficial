@@ -6,11 +6,20 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,6 +56,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
@@ -54,7 +67,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -132,6 +144,17 @@ fun HeadFiAppScreen(
         webViewRef?.goBack()
     }
 
+    // Smart toolbar state: top & bottom bars slide away while reading and
+    // return as soon as the user scrolls up again
+    var barsVisible by remember { mutableStateOf(true) }
+    val barScrollTracker = remember { SmartBarScrollTracker() }
+
+    // A freshly loaded page always starts with the bars visible
+    LaunchedEffect(currentUrl) {
+        barScrollTracker.reset()
+        barsVisible = true
+    }
+
     val startUrl = remember {
         if (!deepLinkUrl.isNullOrBlank()) {
             deepLinkUrl
@@ -142,42 +165,31 @@ fun HeadFiAppScreen(
         }
     }
 
-    NavigationSuiteScaffold(
-        navigationSuiteItems = {
-            HeadFiSection.entries.forEach { section ->
-                val isSelected = selectedSection == section
-                item(
-                    selected = isSelected,
-                    onClick = {
-                        if (isSelected) {
-                            // Tapping the active tab scrolls smoothly to top or reloads section root
-                            webViewRef?.evaluateJavascript(
-                                "if (window.scrollY > 120) { window.scrollTo({top: 0, behavior: 'smooth'}); } else { window.location.href = '${section.url}'; }",
-                                null
-                            )
-                        } else {
-                            webViewRef?.loadUrl(section.url)
-                        }
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = if (isSelected) section.selectedIcon else section.unselectedIcon,
-                            contentDescription = section.title
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = section.title,
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1
-                        )
-                    }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val useNavigationRail = maxWidth >= 600.dp
+
+        val onSectionClick: (HeadFiSection) -> Unit = { section ->
+            if (selectedSection == section) {
+                // Tapping the active tab scrolls smoothly to top or reloads section root
+                webViewRef?.evaluateJavascript(
+                    "if (window.scrollY > 120) { window.scrollTo({top: 0, behavior: 'smooth'}); } else { window.location.href = '${section.url}'; }",
+                    null
                 )
+            } else {
+                webViewRef?.loadUrl(section.url)
             }
         }
-    ) {
+
+        val appBody: @Composable () -> Unit = {
         Scaffold(
             topBar = {
+                AnimatedVisibility(
+                    visible = barsVisible,
+                    enter = slideInVertically(initialOffsetY = { -it }) +
+                        expandVertically(expandFrom = Alignment.Top),
+                    exit = slideOutVertically(targetOffsetY = { -it }) +
+                        shrinkVertically(shrinkTowards = Alignment.Top)
+                ) {
                 Column {
                     TopAppBar(
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -366,6 +378,7 @@ fun HeadFiAppScreen(
                         )
                     }
                 }
+                }
             },
             floatingActionButton = {
                 SmallFloatingActionButton(
@@ -413,6 +426,9 @@ fun HeadFiAppScreen(
                     onFileChooserRequested = onFileChooserRequested,
                     onImageLongPressed = { imageUrl ->
                         longPressedImageUrl = imageUrl
+                    },
+                    onWebViewScrolled = { scrollY, oldScrollY ->
+                        barScrollTracker.onScroll(scrollY, oldScrollY)?.let { barsVisible = it }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -464,6 +480,87 @@ fun HeadFiAppScreen(
                 }
             }
         }
+        }
+
+        if (useNavigationRail) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                AnimatedVisibility(
+                    visible = barsVisible,
+                    enter = slideInHorizontally(initialOffsetX = { -it }) +
+                        expandHorizontally(expandFrom = Alignment.Start),
+                    exit = slideOutHorizontally(targetOffsetX = { -it }) +
+                        shrinkHorizontally(shrinkTowards = Alignment.Start)
+                ) {
+                    NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                        HeadFiSection.entries.forEach { section ->
+                            NavigationRailItem(
+                                selected = selectedSection == section,
+                                onClick = { onSectionClick(section) },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selectedSection == section) {
+                                            section.selectedIcon
+                                        } else {
+                                            section.unselectedIcon
+                                        },
+                                        contentDescription = section.title
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = section.title,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    appBody()
+                }
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.weight(1f)) {
+                    appBody()
+                }
+                AnimatedVisibility(
+                    visible = barsVisible,
+                    enter = slideInVertically(initialOffsetY = { it }) +
+                        expandVertically(expandFrom = Alignment.Bottom),
+                    exit = slideOutVertically(targetOffsetY = { it }) +
+                        shrinkVertically(shrinkTowards = Alignment.Bottom)
+                ) {
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                        HeadFiSection.entries.forEach { section ->
+                            NavigationBarItem(
+                                selected = selectedSection == section,
+                                onClick = { onSectionClick(section) },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selectedSection == section) {
+                                            section.selectedIcon
+                                        } else {
+                                            section.unselectedIcon
+                                        },
+                                        contentDescription = section.title
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = section.title,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Account, Quick Destinations & App Settings Sheet
@@ -482,7 +579,6 @@ fun HeadFiAppScreen(
                 }
             },
             onThemeModeChange = viewModel::setThemeMode,
-            onDynamicColorChange = viewModel::setDynamicColors,
             onAmoledBlackChange = viewModel::setAmoledBlack,
             onInjectWebDarkChange = viewModel::setInjectWebDarkTheme,
             onAdBlockerChange = viewModel::setAdBlockerEnabled,
@@ -543,5 +639,48 @@ fun HeadFiAppScreen(
                 }
             }
         )
+    }
+}
+
+/**
+ * Direction detection with hysteresis for the smart auto-hide toolbars.
+ * Accumulates scroll deltas so tiny jitters don't toggle the bars, and
+ * always keeps the bars visible near the top of the page.
+ *
+ * Returns `true` to show the bars, `false` to hide them, or `null` to keep
+ * the current state.
+ */
+private class SmartBarScrollTracker {
+    private var accumulated = 0f
+
+    fun reset() {
+        accumulated = 0f
+    }
+
+    fun onScroll(scrollY: Int, oldScrollY: Int): Boolean? {
+        val delta = scrollY - oldScrollY
+        if (delta == 0) return null
+
+        // Near the top of the page, always keep the bars on screen
+        if (scrollY <= TOP_AREA_PX) return true
+
+        accumulated += delta
+        return when {
+            accumulated > HIDE_THRESHOLD_PX -> {
+                accumulated = 0f
+                false
+            }
+            accumulated < -SHOW_THRESHOLD_PX -> {
+                accumulated = 0f
+                true
+            }
+            else -> null
+        }
+    }
+
+    companion object {
+        private const val TOP_AREA_PX = 220
+        private const val HIDE_THRESHOLD_PX = 32f
+        private const val SHOW_THRESHOLD_PX = 18f
     }
 }

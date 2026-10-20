@@ -22,7 +22,6 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.NotificationsNone
-import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Visibility
@@ -65,7 +64,6 @@ fun AccountAndSettingsSheet(
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
-    onDynamicColorChange: (Boolean) -> Unit,
     onAmoledBlackChange: (Boolean) -> Unit,
     onInjectWebDarkChange: (Boolean) -> Unit,
     onAdBlockerChange: (Boolean) -> Unit,
@@ -315,16 +313,6 @@ fun AccountAndSettingsSheet(
                         }
                     }
                 }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-
-                SettingToggleRow(
-                    icon = Icons.Outlined.Palette,
-                    title = "Material You Dynamic Color",
-                    subtitle = "Adapt app colors to your Android wallpaper palette",
-                    checked = preferences.dynamicColors,
-                    onCheckedChange = onDynamicColorChange
-                )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
 
