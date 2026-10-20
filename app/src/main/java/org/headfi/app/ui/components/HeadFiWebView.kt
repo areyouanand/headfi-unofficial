@@ -100,12 +100,20 @@ fun HeadFiWebView(
                 }
 
                 addJavascriptInterface(
-                    HeadFiJsBridge(onSessionUpdate = onSessionUpdate),
+                    HeadFiJsBridge(
+                        onSessionUpdate = onSessionUpdate,
+                        onScrollChanged = onWebViewScrolled
+                    ),
                     "HeadFiBridge"
                 )
 
-                // Feed raw scroll positions to the smart auto-hide toolbar logic
-                setOnScrollChangeListener { _, scrollY, _, _, oldScrollY ->
+                // Feed raw scroll positions to the smart auto-hide toolbar logic.
+                // View.OnScrollChangeListener's SAM signature is
+                // (v, scrollX, scrollY, oldScrollX, oldScrollY) — the vertical
+                // positions are the 3rd and 5th arguments. Mixing those up makes
+                // the direction detector see "scrollX" (always 0 for a vertically
+                // scrolling page) and the bars never hide.
+                setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
                     onWebViewScrolled(scrollY, oldScrollY)
                 }
 

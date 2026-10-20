@@ -6,6 +6,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.headfi.app.model.AppPreferences
+import org.headfi.app.model.PollInterval
 import org.headfi.app.model.ThemeMode
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,6 +35,10 @@ class SessionPreferencesRepository(private val context: Context) {
         val SAVED_USERNAME = stringPreferencesKey("saved_username")
         val SAVED_AVATAR_URL = stringPreferencesKey("saved_avatar_url")
         val COOKIE_BACKUP_JSON = stringPreferencesKey("cookie_backup_json")
+        val UNREAD_NOTIFICATIONS = booleanPreferencesKey("unread_notifications")
+        val POLL_INTERVAL = stringPreferencesKey("poll_interval")
+        val LAST_NOTIFIED_ALERTS = intPreferencesKey("last_notified_alerts")
+        val LAST_NOTIFIED_CONVERSATIONS = intPreferencesKey("last_notified_conversations")
     }
 
     val preferencesFlow: Flow<AppPreferences> = context.dataStore.data.map { prefs ->
@@ -46,7 +52,9 @@ class SessionPreferencesRepository(private val context: Context) {
             hideSiteHeaderFooter = prefs[Keys.HIDE_SITE_CHROME] ?: false,
             rememberLastPage = prefs[Keys.REMEMBER_LAST_PAGE] ?: true,
             lastVisitedUrl = prefs[Keys.LAST_VISITED_URL] ?: "https://www.head-fi.org/",
-            savedUsername = prefs[Keys.SAVED_USERNAME] ?: ""
+            savedUsername = prefs[Keys.SAVED_USERNAME] ?: "",
+            unreadNotificationsEnabled = prefs[Keys.UNREAD_NOTIFICATIONS] ?: false,
+            pollInterval = PollInterval.fromName(prefs[Keys.POLL_INTERVAL])
         )
     }
 
@@ -79,6 +87,33 @@ class SessionPreferencesRepository(private val context: Context) {
 
     suspend fun setRememberLastPage(enabled: Boolean) {
         context.dataStore.edit { it[Keys.REMEMBER_LAST_PAGE] = enabled }
+    }
+
+    suspend fun setUnreadNotificationsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.UNREAD_NOTIFICATIONS] = enabled }
+    }
+
+    suspend fun setPollInterval(interval: PollInterval) {
+        context.dataStore.edit { it[Keys.POLL_INTERVAL] = interval.name }
+    }
+
+    /**
+     * Unread counts the user has already been told about (or already seen in the
+     * app). Used by the background poller to only notify about *new* items.
+     */
+    suspend fun lastNotifiedCounts(): Pair<Int, Int> {
+        val prefs = context.dataStore.data.first()
+        return (prefs[Keys.LAST_NOTIFIED_ALERTS] ?: 0) to
+            (prefs[Keys.LAST_NOTIFIED_CONVERSATIONS] ?: 0)
+    }
+
+    suspend fun updateLastNotified(alerts: Int?, conversations: Int?) {
+        context.dataStore.edit { prefs ->
+            alerts?.let { prefs[Keys.LAST_NOTIFIED_ALERTS] = it.coerceAtLeast(0) }
+            conversations?.let {
+                prefs[Keys.LAST_NOTIFIED_CONVERSATIONS] = it.coerceAtLeast(0)
+            }
+        }
     }
 
     suspend fun saveLastVisitedUrl(url: String) {
@@ -182,6 +217,55 @@ class SessionPreferencesRepository(private val context: Context) {
                 cookieManager.flush()
             }
             restoredAny
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Rebuilds a `Cookie:` header for authenticated requests made outside the
+     * WebView (e.g. the background unread poller).
+     *
+     * Prefers the live WebView cookie store; falls back to the DataStore vault so
+     * polling still works after the OS has trimmed the cookie database.
+     */
+    suspend fun cookieHeader(): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            CookieManager.getInstance().getCookie("https://www.head-fi.org")
+                ?.takeIf { it.contains("xf_user=") }
+                ?.let { return@runCatching it }
+
+            val prefs = context.dataStore.data.first()
+            val backupJson = prefs[Keys.COOKIE_BACKUP_JSON] ?: return@runCatching null
+            val array = JSONArray(backupJson)
+
+            val names = LinkedHashSet<String>()
+            val values = LinkedHashMap<String, String>()
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+                val name = item.optString("name")
+                val value = item.optString("value")
+                if (name.isNotBlank() && value.isNotBlank() && names.add(name)) {
+                    values[name] = value
+                }
+            }
+            if (values.isEmpty() || !values.keys.any { it == "xf_user" }) {
+                null
+            } else {
+                values.entries.joinToString("; ") { "${it.key}=${it.value}" }
+            }
+        }.getOrNull()
+    }
+
+    /** True when a persistent (`xf_user`) session has been backed up. */
+    suspend fun hasStoredSession(): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            if (CookieManager.getInstance()
+                    .getCookie("https://www.head-fi.org")
+                    ?.contains("xf_user=") == true
+            ) {
+                return@runCatching true
+            }
+            val prefs = context.dataStore.data.first()
+            prefs[Keys.COOKIE_BACKUP_JSON]?.contains("\"xf_user\"") == true
         }.getOrDefault(false)
     }
 

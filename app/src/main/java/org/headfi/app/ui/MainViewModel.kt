@@ -7,14 +7,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.headfi.app.data.SessionPreferencesRepository
 import org.headfi.app.model.AppPreferences
 import org.headfi.app.model.HeadFiSection
+import org.headfi.app.model.PollInterval
 import org.headfi.app.model.ThemeMode
 import org.headfi.app.model.UserSessionState
+import org.headfi.app.notifications.HeadFiNotifications
+import org.headfi.app.notifications.UnreadPollScheduler
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -119,6 +123,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     repository.saveUserIdentity(username, avatarUrl)
                 }
             }
+            // The user is looking at these badges right now, so don't re-notify
+            // for counts they have already seen in the app.
+            repository.updateLastNotified(unreadAlerts, unreadConversations)
+            if (unreadAlerts == 0) {
+                HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_ALERTS)
+            }
+            if (unreadConversations == 0) {
+                HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_CONVERSATIONS)
+            }
             _sessionState.value = UserSessionState(
                 isLoggedIn = isLoggedIn,
                 username = username,
@@ -139,6 +152,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun logoutAndClearSession(onComplete: () -> Unit) {
         viewModelScope.launch {
             repository.clearSessionData()
+            repository.updateLastNotified(0, 0)
+            HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_ALERTS)
+            HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_CONVERSATIONS)
             _sessionState.value = UserSessionState(hasRememberMeCookie = false)
             onComplete()
         }
@@ -162,5 +178,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setRememberLastPage(enabled: Boolean) {
         viewModelScope.launch { repository.setRememberLastPage(enabled) }
+    }
+
+    fun setUnreadNotificationsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setUnreadNotificationsEnabled(enabled)
+            UnreadPollScheduler.sync(
+                context = getApplication(),
+                enabled = enabled,
+                interval = repository.preferencesFlow.first().pollInterval
+            )
+        }
+    }
+
+    fun setPollInterval(interval: PollInterval) {
+        viewModelScope.launch {
+            repository.setPollInterval(interval)
+            val preferences = repository.preferencesFlow.first()
+            if (preferences.unreadNotificationsEnabled) {
+                UnreadPollScheduler.sync(
+                    context = getApplication(),
+                    enabled = true,
+                    interval = interval
+                )
+            }
+        }
     }
 }

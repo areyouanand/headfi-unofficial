@@ -12,7 +12,7 @@
 
 ---
 
-A native **Kotlin + Jetpack Compose** client that wraps Head-Fi's XenForo 2.3 platform in a **Material 3 Expressive / Material You** adaptive shell, with guaranteed login persistence across app restarts and device reboots, custom dark/AMOLED styling, ad/tracker blocking, multi-photo uploads, and a monochrome Head-Fi adaptive icon.
+A native **Kotlin + Jetpack Compose** client that wraps Head-Fi's XenForo 2.3 platform in a **Material 3 Expressive / Material You** adaptive shell, with guaranteed login persistence across app restarts and device reboots, custom dark/AMOLED styling, ad/tracker blocking, multi-photo uploads with camera capture, background unread notifications, and a monochrome Head-Fi adaptive icon.
 
 ## 📥 Download
 
@@ -29,6 +29,8 @@ Grab the latest APK from the [**Releases**](../../releases) page: `HeadFi-vX.Y.Z
 - **XenForo session bridge** — username, avatar, unread alerts and conversations show up natively in the top bar and account sheet.
 - **Material 3 Expressive shell** — bottom navigation bar on phones, navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, native search dialog, scroll-to-top FAB.
 - **Smart auto-hiding toolbars** — the top app bar and bottom navigation slide away while you scroll down to read and slide back the moment you scroll up (always visible near the top of a page).
+- **Background unread notifications** — an opt-in WorkManager poller re-checks Head-Fi with your saved `xf_user` cookie (keeping the session warm while the app is closed) and raises a native notification when new alerts or private messages arrive. Choose between 15-minute and 3-hour intervals.
+- **Camera capture for uploads** — the attachment picker offers *Camera* alongside the file picker, so you can snap photos directly for forum posts and Classifieds listings.
 - **Theming** — fixed Head-Fi color scheme that mirrors the site's own palette for consistent readability (light/dark/system plus a pure AMOLED black override).
 - **Cloudflare Turnstile friendly** — WebView user agent is scrubbed so challenges treat it as standard Chrome Mobile; Cloudflare/CDN domains are allowlisted while 30+ ad/tracker domains are blocked.
 - **Multi-photo uploads** — file chooser supports multiple selection for forum attachments and Classifieds listings.

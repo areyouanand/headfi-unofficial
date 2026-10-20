@@ -47,6 +47,35 @@ object HeadFiScripts {
                     }
                 }
 
+                // 1b. Report document scrolling so the native smart auto-hiding
+                //     toolbars keep working even when the WebView view itself does
+                //     not emit scroll changes (fixed layouts / custom scrollers).
+                if (!window.__headfiScrollAttached && window.addEventListener) {
+                    window.__headfiScrollAttached = true;
+                    window.__headfiLastScrollY = Math.round(window.scrollY || window.pageYOffset || 0);
+                    var scrollPending = false;
+                    window.addEventListener('scroll', function() {
+                        if (scrollPending) { return; }
+                        scrollPending = true;
+                        var report = function() {
+                            scrollPending = false;
+                            var y = Math.round(window.scrollY || window.pageYOffset || 0);
+                            var prev = window.__headfiLastScrollY;
+                            if (y !== prev) {
+                                window.__headfiLastScrollY = y;
+                                if (window.HeadFiBridge && window.HeadFiBridge.onPageScrolled) {
+                                    window.HeadFiBridge.onPageScrolled(y, prev);
+                                }
+                            }
+                        };
+                        if (window.requestAnimationFrame) {
+                            window.requestAnimationFrame(report);
+                        } else {
+                            report();
+                        }
+                    }, { passive: true });
+                }
+
                 // 2. Extract XenForo 2.3 session state for the native M3 UI
                 var htmlEl = document.documentElement;
                 var loggedInAttr = htmlEl ? htmlEl.getAttribute('data-logged-in') : 'false';

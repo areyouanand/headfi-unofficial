@@ -4,6 +4,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Native notifications for background unread alerts / private messages -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- For saving images on Android 9 and below -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

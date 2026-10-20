@@ -1,6 +1,7 @@
 package org.headfi.app.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.MailOutline
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Shield
@@ -50,6 +52,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.headfi.app.model.AppPreferences
+import org.headfi.app.model.PollInterval
 import org.headfi.app.model.QuickDestination
 import org.headfi.app.model.ThemeMode
 import org.headfi.app.model.UserSessionState
@@ -67,7 +70,9 @@ fun AccountAndSettingsSheet(
     onAmoledBlackChange: (Boolean) -> Unit,
     onInjectWebDarkChange: (Boolean) -> Unit,
     onAdBlockerChange: (Boolean) -> Unit,
-    onRememberLastPageChange: (Boolean) -> Unit
+    onRememberLastPageChange: (Boolean) -> Unit,
+    onUnreadNotificationsChange: (Boolean) -> Unit,
+    onPollIntervalChange: (PollInterval) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -353,6 +358,74 @@ fun AccountAndSettingsSheet(
                     checked = preferences.rememberLastPage,
                     onCheckedChange = onRememberLastPageChange
                 )
+            }
+
+            // Background Unread Notifications
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Background Unread Notifications",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Periodically re-checks Head-Fi with your saved session cookie " +
+                            "and posts a native notification when new alerts or private " +
+                            "messages arrive. This also keeps the session warm while the app is closed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    SettingToggleRow(
+                        icon = Icons.Outlined.NotificationsActive,
+                        title = "Notify me about unread activity",
+                        subtitle = if (sessionState.isLoggedIn || sessionState.hasRememberMeCookie) {
+                            "Uses your persistent Head-Fi login"
+                        } else {
+                            "Sign in first — the poller needs a saved session cookie"
+                        },
+                        checked = preferences.unreadNotificationsEnabled,
+                        onCheckedChange = onUnreadNotificationsChange
+                    )
+
+                    if (preferences.unreadNotificationsEnabled) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Check frequency",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            PollInterval.entries.forEach { interval ->
+                                FilterChip(
+                                    selected = preferences.pollInterval == interval,
+                                    onClick = { onPollIntervalChange(interval) },
+                                    label = { Text(interval.label) }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Android may delay checks to save battery; WorkManager " +
+                                "enforces a 15 minute minimum interval.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }

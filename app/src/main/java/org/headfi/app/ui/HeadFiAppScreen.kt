@@ -1,10 +1,15 @@
 package org.headfi.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
@@ -81,6 +86,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import org.headfi.app.model.HeadFiSection
 import org.headfi.app.model.ThemeMode
 import org.headfi.app.ui.components.AccountAndSettingsSheet
@@ -144,13 +150,31 @@ fun HeadFiAppScreen(
         webViewRef?.goBack()
     }
 
+    // Runtime notification permission (Android 13+) for the background poller
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* Nothing to do: the worker checks areNotificationsEnabled() itself */ }
+
+    val onUnreadNotificationsToggled: (Boolean) -> Unit = { enabled ->
+        viewModel.setUnreadNotificationsEnabled(enabled)
+        if (enabled &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     // Smart toolbar state: top & bottom bars slide away while reading and
     // return as soon as the user scrolls up again
     var barsVisible by remember { mutableStateOf(true) }
     val barScrollTracker = remember { SmartBarScrollTracker() }
 
     // A freshly loaded page always starts with the bars visible
-    LaunchedEffect(currentUrl) {
+    LaunchedEffect(currentUrl, isLoading) {
         barScrollTracker.reset()
         barsVisible = true
     }
@@ -428,7 +452,11 @@ fun HeadFiAppScreen(
                         longPressedImageUrl = imageUrl
                     },
                     onWebViewScrolled = { scrollY, oldScrollY ->
-                        barScrollTracker.onScroll(scrollY, oldScrollY)?.let { barsVisible = it }
+                        // Fed by both the WebView's OnScrollChangeListener and the
+                        // page's own `scroll` listener; each passes its own delta.
+                        barScrollTracker
+                            .onScroll(scrollY, oldScrollY, System.currentTimeMillis())
+                            ?.let { barsVisible = it }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -582,7 +610,9 @@ fun HeadFiAppScreen(
             onAmoledBlackChange = viewModel::setAmoledBlack,
             onInjectWebDarkChange = viewModel::setInjectWebDarkTheme,
             onAdBlockerChange = viewModel::setAdBlockerEnabled,
-            onRememberLastPageChange = viewModel::setRememberLastPage
+            onRememberLastPageChange = viewModel::setRememberLastPage,
+            onUnreadNotificationsChange = onUnreadNotificationsToggled,
+            onPollIntervalChange = viewModel::setPollInterval
         )
     }
 
@@ -649,38 +679,61 @@ fun HeadFiAppScreen(
  *
  * Returns `true` to show the bars, `false` to hide them, or `null` to keep
  * the current state.
+ *
+ * The tracker is fed from two independent sources — the WebView's own
+ * `OnScrollChangeListener` and a `scroll` listener injected into the page —
+ * so every caller must pass its *own* `oldScrollY`. Because both sources
+ * observe the same gesture, their deltas always agree in sign.
  */
 private class SmartBarScrollTracker {
+
     private var accumulated = 0f
+
+    /** Timestamp of the last visibility flip, used to ignore layout feedback. */
+    private var lastToggleAtMs = 0L
 
     fun reset() {
         accumulated = 0f
+        lastToggleAtMs = 0L
     }
 
-    fun onScroll(scrollY: Int, oldScrollY: Int): Boolean? {
+    fun onScroll(scrollY: Int, oldScrollY: Int, nowMs: Long): Boolean? {
         val delta = scrollY - oldScrollY
         if (delta == 0) return null
 
         // Near the top of the page, always keep the bars on screen
-        if (scrollY <= TOP_AREA_PX) return true
+        if (scrollY <= TOP_AREA_PX) {
+            accumulated = 0f
+            return true
+        }
+
+        // Hiding the bars makes the WebView taller, which can clamp the scroll
+        // offset at the very bottom of a page and fire a scroll event of its
+        // own. Without this guard that feedback loop flips the bars forever.
+        if (nowMs - lastToggleAtMs < SETTLE_MS) {
+            accumulated = 0f
+            return null
+        }
 
         accumulated += delta
-        return when {
-            accumulated > HIDE_THRESHOLD_PX -> {
-                accumulated = 0f
-                false
-            }
-            accumulated < -SHOW_THRESHOLD_PX -> {
-                accumulated = 0f
-                true
-            }
+        val result = when {
+            accumulated > HIDE_THRESHOLD_PX -> false
+            accumulated < -SHOW_THRESHOLD_PX -> true
             else -> null
         }
+        if (result != null) {
+            accumulated = 0f
+            lastToggleAtMs = nowMs
+        }
+        return result
     }
 
     companion object {
         private const val TOP_AREA_PX = 220
         private const val HIDE_THRESHOLD_PX = 32f
         private const val SHOW_THRESHOLD_PX = 18f
+
+        /** How long to ignore scroll blips produced by the bar animation itself. */
+        private const val SETTLE_MS = 250L
     }
 }
