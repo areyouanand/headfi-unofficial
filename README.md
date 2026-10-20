@@ -59,7 +59,7 @@ The code in this repository is released under the **[MIT License](LICENSE)** —
 
 Two things sit outside that license:
 
-- **Head-Fi trademarks** — the "Head-Fi" name, logo, and related marks belong to Head-Fi.org and are not covered by the MIT grant (see the trademark notice in `LICENSE`). Forks must carry their own unofficial disclaimer.
+- **Head-Fi trademarks** — the "Head-Fi" name, logo, and related marks belong to Head-Fi.org and are not covered by the MIT grant (see [NOTICE.md](NOTICE.md)). Forks must carry their own unofficial disclaimer.
 - **The Head-Fi.org site itself** — this client only displays publicly available pages; the community and its content belong to Head-Fi.org.
 
 ## 🙏 Acknowledgements
