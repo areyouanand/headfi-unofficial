@@ -13,7 +13,7 @@
   - `MainViewModel` (`StateFlow` reactive UI state)
   - Jetpack `DataStore` Preferences (`SessionPreferencesRepository`)
   - Android `CookieManager` SQLite persistence + JSON cookie vault backup/restore
-- **Background Work**: WorkManager (`2.10.1`) `CoroutineWorker` + `PeriodicWorkRequest` for background unread polling
+- **Background Work**: WorkManager (`2.10.1`) `CoroutineWorker` + `PeriodicWorkRequest` for background unread polling; `lifecycle-process` (`ProcessLifecycleOwner`) for foreground detection
 - **Pull to Refresh**: `androidx.swiperefreshlayout:swiperefreshlayout:1.1.0`
 - **Web Engine**: AndroidX WebKit (`1.12.1`) + Chrome Custom Tabs (`androidx.browser:1.8.0`)
 
@@ -37,20 +37,19 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
   - Uses `NavigationSuiteScaffold` to automatically render a Material 3 **NavigationBar** on compact phones and a **NavigationRail** on tablets/foldables/landscape.
   - Top-level sections: **Home** (`/`), **Forums** (`/forums/`), **What's New** (`/whats-new/posts/`), **Head Gear** (`/showcase/`), and **Classifieds** (`/classifieds/`).
   - Tapping the currently active bottom navigation item smoothly scrolls the page to the top or reloads the section root.
-  - **Smart auto-hiding toolbars**: the floating nav button and the bottom navigation bar (or rail) slide out of view while scrolling down and slide back in on upward scroll, with hysteresis so small jitters don't toggle them (`SmartBarScrollTracker` in `HeadFiAppScreen.kt`). They are always visible near the top of a page and re-appear on page load.
+  - **Smart auto-hiding toolbars**: the bottom navigation bar (or rail) slides out of view while scrolling down and slide back in on upward scroll, with hysteresis so small jitters don't toggle them (`SmartBarScrollTracker` in `HeadFiAppScreen.kt`). They are always visible near the top of a page and re-appear on page load.
   - Scroll input comes from **two independent sources** so direction detection can never silently die:
     1. `WebView.setOnScrollChangeListener` — note that `View.OnScrollChangeListener`'s SAM signature is `(v, scrollX, scrollY, oldScrollX, oldScrollY)`; binding the vertical positions to the wrong parameters makes `scrollY` always read `0` and the bars never hide. This was the original bug.
     2. A passive `scroll` listener injected by `HeadFiScripts.kt` that reports `window.scrollY` deltas through `HeadFiJsBridge.onPageScrolled(...)`.
   - A 250 ms "settle" window after each visibility flip absorbs the scroll blip caused by the bars themselves resizing the WebView (which clamps `scrollY` at the very bottom of a page and would otherwise ping-pong the bars forever).
-- **The app bar is a floating round button, not a bar** (v1.4.0). The Scaffold has **no** `topBar` at all; the chrome is a fully-rounded `Surface` (`CircleShape`, `surfaceContainerHigh`, tonal + shadow elevation) overlaid on the content `Box` at `Alignment.TopCenter`. Because it is an overlay rather than a Scaffold slot, it genuinely floats over the WebView instead of pushing it down.
-  - It carries **only** page navigation and the overflow menu: **Back** (or the Head-Fi logo pill when there is no history, which navigates Home), **Forward** when history exists, and the **overflow** menu.
-  - **Everything else moved or went.** Profile moved to the end of the bottom bar and rail. Search moved to the overflow menu. The page title, the `head-fi.org • user` subtitle and the alerts shortcut are gone. The site's own header supplies that context, which is also why the "hide the site header" setting was removed (see D).
+- **No app bar and no floating button** (v1.5.0). The floating nav button and its overflow menu were removed, and so was the scroll-to-top FAB (the site has its own). The bottom bar (or rail on wide screens) is user-configurable: **Account & Settings → Bottom Bar** picks up to 4 items and their order (Profile is the fifth slot). Items are sections, back, forward, refresh, search, find in page, share, open in browser, and (signed-in only) watched threads, messages, bookmarks and alerts. Profile is always last and carries the unread badge. The default is Home, Forums, What's New and Classifieds. Stored in DataStore as `bottom_bar_items`, in user order. Models live in `model/BottomBarItem.kt`.
+  - **Rendering (v1.5.0):** a custom bar (`HeadFiBottomBar` / `BottomBarSlot` in `HeadFiAppScreen.kt`), not Material's `NavigationBar`. Slots are equal width; the active section gets a short primary tab indicator above its icon, a primary-coloured icon and label, and a slightly wider slot (`animateFloatAsState` on the weight). Labels are `labelSmall`, single line, with ellipsis as a last resort. `BottomBarItem.shortLabel` gives a compact label where space is tight (*What's New* shows as *News*). Each tap sends a light haptic tick. The bar holds at most 4 selectable items plus Profile (`MAX_SELECTED = 4`). Signed-out users do not see the member items. The rail on wide screens still uses `NavigationRailItem`.
+  - The site's own header is left alone, which is also why the "hide the site header" setting was removed (see D).
   - The **loading indicator** was moved off the app bar onto the top edge of the WebView (full width, 3 dp), since a floating bar has no full-width surface to hang it on.
-- **Find in page**: overflow menu → *Find in Page* opens an inline bar driven by `WebView.findAllAsync()` / `findNext()` with a live `n/m` match counter. Predictive back closes it (and calls `clearMatches()`) before it goes back in history.
-- **Sign-in prompt**: a dismissible card appears at the top of the page whenever the user has neither a live session nor a `xf_user` cookie. The profile button at the end of the bottom bar is the other entry point — it shows a login glyph and a "Sign in" label until a session exists (`profileIconFor` / `profileLabelFor`).
-- **Scroll-to-top FAB** only appears once the user is more than 300 px down the page.
-- **Member shortcuts in the overflow menu**: Watched Threads, Conversations and Bookmarks (shown only when signed in), so they are reachable without opening the account sheet.
-- Also supports **pull-to-refresh** (see D), **Predictive Back (`BackHandler`)** — which closes the find-in-page bar before it pops history — and a native **Search Dialog** (`SearchHeadFiDialog.kt`) with quick sub-forum chips, now reached from the overflow menu's *Search Head-Fi* item rather than a top-bar icon.
+- **Find in page**: bottom bar → *Find* (or the Find in Page option) opens an inline bar driven by `WebView.findAllAsync()` / `findNext()` with a live `n/m` match counter. Predictive back closes it (and calls `clearMatches()`) before it goes back in history.
+- **Sign-in prompt**: a dismissible card appears at the top of the page whenever the user has neither a live session nor a `xf_user` cookie. Dismissal persists (`sign_in_prompt_dismissed`) and is reset on sign-out. The profile button at the end of the bottom bar is the other entry point — it shows a login glyph and a "Sign in" label until a session exists (`profileIconFor` / `profileLabelFor`).
+- **Member shortcuts** (Watched Threads, Messages, Bookmarks, Alerts) are bottom-bar options that are hidden while signed out (`BottomBarItem.isVisibleTo`).
+- Also supports **pull-to-refresh** (see D), **Predictive Back (`BackHandler`)** — which closes the find-in-page bar before it pops history — and a native **Search Dialog** (`SearchHeadFiDialog.kt`) with quick sub-forum chips, reached from the bottom bar's *Search* option.
 - **`AccountAndSettingsSheet.kt`**:
   - Material 3 `ModalBottomSheet` displaying current session status, Sign In / Log Out actions, quick member links (**Alerts**, **Private Messages**, **Watched Threads**, **Bookmarks**, **Articles**), and live appearance toggles.
 - **`Theme.kt`**:
@@ -71,6 +70,7 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
 - **Cloudflare Turnstile Compatibility (`HeadFiWebView.kt`)**:
   - Strips `; wv` and `Version/X.X` tokens from the WebView `userAgentString` so Cloudflare Turnstile challenges and login flows treat the client as standard Chrome Mobile.
   - `AdBlockEngine.kt` explicitly allowlists `challenges.cloudflare.com`, `cloudflare.com`, and `cdn.head-fi.org` while blocking 30+ third-party ad/tracker domains.
+   - `TurnstileChallengeWatcher` (`HeadFiWebView.kt`) polls for `cf_clearance` while the page is on `/bot/challenge` (up to 3 minutes, every 2 seconds) and reloads the home page once the cookie appears. It is capped at 2 reloads.
 - **File Uploads (`MainActivity.kt`)**:
   - Implements `WebChromeClient.onShowFileChooser` with `ActivityResultContracts.StartActivityForResult` supporting single and multiple photo selection (`EXTRA_ALLOW_MULTIPLE`) for forum attachments and Classifieds listings.
   - The picker intent is taken from `FileChooserParams.createIntent()` when available (it already carries the correct mode and MIME filters), with a hand-built `ACTION_GET_CONTENT` fallback.
@@ -79,11 +79,11 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
   - Long-pressing any image in a thread opens a Material 3 dialog to save the image via `DownloadManager` (passing authenticated cookies) or share its URL.
 - **Reading & layout controls** (all in `AccountAndSettingsSheet.kt` → *Reading & Layout*):
   - **Text size** — `WebSettings.textZoom`, applied live without a reload. Four steps (85 % / 100 % / 115 % / 130 %).
-  - **Site layout** — a segmented Mobile / Desktop select. Desktop mode swaps in a desktop Chrome User-Agent and reloads, because the server only sees the UA on the next request.
+  - **Site layout** — a segmented Mobile / Desktop select. Desktop mode swaps in a desktop Chrome User-Agent and reloads, because the server only sees the UA on the next request. The scroll offset is saved before the reload and restored after it (`pendingScrollRestore` in `HeadFiWebView.kt`).
   - **Data Saver** — drops image requests in `shouldInterceptRequest` by extension and `Accept` header, leaving stylesheets and scripts alone. Applied live.
     - This branch **must** be keyed off `loadImages`, never off `adBlockerEnabled`. It shipped in v1.3.0 keyed off `adBlockerEnabled`, which is on by default, so it returned an empty response for every image on every page. Head-Fi's CDN is allowlisted in `AdBlockEngine`, so the blocklist was never the cause — the symptom is "the whole site is text".
   - **"Hide Head-Fi's own header" was removed in v1.4.0** — the setting, its preference, its repository key, the ViewModel setter, the `HeadFiWebView` parameter and the CSS that hid `header.p-header` / `#header` / `.p-nav-smallLogo` are all gone. The site's header now stays exactly as Head-Fi renders it. Head-Fi renders **two** logos — one in `<header class="p-header">` and a second in `.p-nav-smallLogo` inside the sticky `.p-navSticky` nav — and the old CSS hid both; keep that in mind if the option is ever revisited, because hiding only the header leaves the nav logo looking like a header.
-- **Offline handling**: a connection failure only takes over the whole screen while no page has loaded yet. Once something has rendered, it degrades to a top banner with a Retry button so the user keeps the page they were reading.
+- **Offline handling**: a connection failure only takes over the whole screen while no page has loaded yet. Once something has rendered, it degrades to a top banner with a Retry button so the user keeps the page they were reading. A default-network callback (`HeadFiAppScreen.kt`) clears the error and reloads when connectivity returns.
 - **Notification permission**: if the user denies `POST_NOTIFICATIONS`, a snackbar explains what broke and where to re-enable it. Previously the toggle flipped on and then silently did nothing.
 
 ### E. Background Unread Notifications (WorkManager)
@@ -97,7 +97,8 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
 - **`notifications/HeadFiNotifications.kt`** — creates the `headfi_unread` channel and posts notifications with a `PendingIntent` that deep-links straight into `/account/alerts` or `/conversations/`.
 - **De-duplication against the app itself**: whenever the JS bridge reports session state, `MainViewModel` writes those counts back to DataStore, so the user is never notified for alerts they already saw in the top bar.
 - **Permissions**: `POST_NOTIFICATIONS` is requested at runtime on Android 13+ when the user enables the feature; the worker also checks `areNotificationsEnabled()` before posting.
-- **Opt-in UI**: `AccountAndSettingsSheet.kt` exposes the toggle plus frequency chips (15 min / 30 min / hourly / 3 hours — WorkManager enforces a 15 minute floor).
+- **Opt-in UI**: `AccountAndSettingsSheet.kt` exposes the toggle plus frequency chips (15 min / 30 min / hourly / 3 hours — WorkManager enforces a 15 minute floor). A **Check now** button runs one poll immediately (`UnreadPollScheduler.checkNow`, unique one-time work with `manual=true` input).
+- **Foreground suppression:** `UnreadPollWorker` checks `ProcessLifecycleOwner` and skips posting notifications while the app is on screen. `lastNotified` is left unchanged, so anything still unread is announced once the app is backgrounded. Manual checks always notify.
 
 ---
 
@@ -124,7 +125,8 @@ F:\AI stuff\HeadFi-Org\
         │   ├── data/
         │   │   └── SessionPreferencesRepository.kt
         │   ├── model/
-        │   │   ├── HeadFiSection.kt        # 5 nav destinations + QuickDestination (member URLs)
+        │   │   ├── BottomBarItem.kt        # bottom bar options, defaults, sign-in-only items, 4-item cap
+│   │   ├── HeadFiSection.kt        # 5 nav destinations + QuickDestination (member URLs)
         │   │   └── UserSessionState.kt     # AppPreferences, ThemeMode, PollInterval, TextSize, SiteLayout
         │   ├── ui/
         │   │   ├── HeadFiAppScreen.kt
@@ -174,7 +176,7 @@ F:\AI stuff\HeadFi-Org\
   - Android SDK: `.toolchain/android-sdk` — `platforms;android-35`, `build-tools;35.0.0`, `platform-tools`, `cmdline-tools/latest`, licenses accepted
   - Gradle 8.11.1 wrapper distribution is cached in `%USERPROFILE%\.gradle\wrapper\dists`
 - User-scope environment variables were written (`JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, plus `java`/`platform-tools`/`cmdline-tools` on `Path`), so new terminals resolve them automatically. They are **not** inherited by already-running processes.
-- `.\gradlew.bat assembleDebug assembleRelease` **passes** as of this handoff (v1.3.1): both APKs build, the release APK keeps `UnreadPollWorker` unobfuscated (verified in `mapping.txt` and in `classes.dex`), and the merged manifest contains `WorkManagerInitializer`, `POST_NOTIFICATIONS`, and the `FileProvider` authority.
+- `.\gradlew.bat assembleDebug assembleRelease` **passes** as of v1.5.0: both APKs build, the release APK keeps `UnreadPollWorker` unobfuscated (verified in `mapping.txt` and in `classes.dex`), and the merged manifest contains `WorkManagerInitializer`, `POST_NOTIFICATIONS`, and the `FileProvider` authority.
 - **The app is running on a real device, and that has already paid off twice.** Two regressions shipped in v1.3.0 and were reported from actual use, not from a test run: images not loading anywhere (Data Saver keyed off the ad-blocker flag instead of `loadImages`), and "hide the site header" leaving Head-Fi's second logo in the sticky nav visible. Both are fixed in v1.3.1 — see section D.
 - **Device: OPPO CPH2841, Android 16 (SDK 36).** A physical phone is attached over adb; no emulator is installed.
 - **Images are now confirmed loading on-device.** Verified by inspecting the WebView HTTP cache of a fresh debug install of the fixed build (`adb shell run-as org.headfi.app.debug` — see the caveat below on why `run-as` is the useful trick here). The cache held four image responses from `cdn.head-fi.org` totalling ~500 KB: `HF_SponsorFlag_01a_Daylight.png` (308 KB), `Head-Fi_Featured_Image_01b_Daylight.jpg` (118 KB), `Head-Fi_Favicon_01b.png` (36 KB) and `HFXT_Head-Fi_Logo_800x170.png` (35 KB). Under the v1.3.0 bug every image request returned an empty response, so none of these could exist. **This is the technique to reach for when you cannot see the screen**: dump the cache keys with `head -c 400 <entry> | strings | grep -i http`, which prints the URL Chromium stored for each entry.
@@ -185,8 +187,15 @@ F:\AI stuff\HeadFi-Org\
   - Compose **off-state** switches are effectively invisible to screenshot analysis — an outlined Material3 `Switch` track is mostly transparent, so the right-hand side of a settings row reads as flat background. You cannot locate toggles by pixel statistics.
   - What does work: `screencap` (pipe through `cmd /c ... > file.png`; PowerShell's `>` and `Set-Content -Encoding Byte` both corrupt binary), plus `run-as` on the debug build for app-private data.
 - **Open risk — Cloudflare Turnstile does not auto-clear on a fresh profile.** A clean install lands on `/bot/challenge` and stays there; tapping the widget at several coordinates and waiting did not complete it. The user's own install carries a `cf_clearance` cookie so it passes, but if that cookie ever expires or app data is cleared, the app will sit on the challenge with no obvious way past it. This is untriaged and is the most likely next user-visible complaint.
-- **Still compile-verified only:** the v1.4.0 floating nav button (it has not been run on a device at all), find-in-page, the offline banner, camera capture, and the live application of text zoom and Data Saver. The header hiding toggle is gone, so there is nothing left to verify there.
+- **Verified on device (v1.5.0 release, via screenshots):** the bottom bar layout, labels and tab indicator.
+- **Still compile-verified only:** bottom bar customisation, ordering and persistence; the reconnect callback; the Turnstile challenge watcher; Check now; scroll restore on layout switch; foreground suppression; find-in-page; the offline banner; camera capture; and the live application of text zoom and Data Saver. The header hiding toggle is gone, so there is nothing left to verify there.
 - Note: `gradlew` (the Unix shell script) must keep its executable bit — it was briefly committed as `100644`, which broke a Linux CI run, and was fixed in `ee3b4b0`. Windows builds are unaffected either way, so this is easy to regress by accident on a Windows checkout.
+
+### Release & Versioning (v1.5.0)
+- Release APKs are versioned from the command line: `./gradlew assembleRelease "-PAPP_VERSION_NAME=1.5.0" "-PAPP_VERSION_CODE=14"`. Quote the arguments in PowerShell, or the dots split the argument and Gradle fails.
+- The version code must increase on every install. The phone had 1.4.0 (code 13), so a build with the default code 1 was rejected with `INSTALL_FAILED_VERSION_DOWNGRADE`. The README says the code is the commit count. Before the next CI release, check that the count is above the code already installed.
+- Installing over an existing release keeps its data. Uninstalling the debug package (`org.headfi.app.debug`) removes its data, including its login.
+- Screenshots: `adb shell screencap -p /sdcard/x.png`, then `adb pull`. If the viewer cannot decode the file, crop it with `System.Drawing` (`powershell -File`, not inline, so PowerShell does not expand the `$` variables).
 
 ### How to Build & Test in Android Studio
 1. Open `F:\AI stuff\HeadFi-Org` in **Android Studio Ladybug (2024.2.1) or newer**.
@@ -198,7 +207,7 @@ F:\AI stuff\HeadFi-Org\
    - Verify your username and the unread badge appear on the profile button at the end of the bottom navigation bar (there is no longer a top app bar).
    - Reboot the Android device or force-stop the app and relaunch — confirm your session remains logged in and resumes on your last visited thread.
 5. **Verify Smart Auto-Hide Toolbars**:
-   - Open any long thread and scroll down past ~220 px: the floating nav button and the bottom navigation bar (or rail) should slide away together.
+   - Open any long thread and scroll down past ~220 px: the bottom navigation bar (or rail) should slide away.
    - Scroll up a little: both should slide straight back.
    - Scroll all the way to the very bottom of a page and keep scrolling: the bars must hide and *stay* hidden (no flickering/ping-pong).
    - Jump back to the top of the page: the bars should always be visible there.
@@ -218,7 +227,7 @@ F:\AI stuff\HeadFi-Org\
    - Pull to refresh while a page is still loading — it should be ignored, not queue a second load.
    - Watch that the spinner actually disappears when the page settles (it is cleared from three separate callbacks for this reason).
 9. **Verify Find in Page**:
-   - Open a long thread, then overflow menu → **Find in Page**. The keyboard should come up automatically.
+   - Open a long thread, then bottom bar → **Find** (added via Account & Settings → Bottom Bar). The keyboard should come up automatically.
    - Type a common word (e.g. "the") — the `n/m` counter should count up and match the page.
    - Step forward and backward past the last match; it should wrap or stop, not crash.
    - Press system back — the find bar should close and the highlight should clear **before** the WebView goes back in history. Pressing back a second time should then navigate back.
@@ -227,13 +236,13 @@ F:\AI stuff\HeadFi-Org\
     - **Text size**: step through Small → Extra large. Body text should rescale without a reload; confirm it also survives a page navigation and an app restart (it is persisted).
     - **Site layout**: switch to Desktop. The page should reload and serve the desktop site; confirm the desktop nav renders and that flipping back to Mobile restores it. Note this reloads the page, so scroll position is lost — verify that is tolerable in practice.
     - **Data Saver**: with it **off** (the default), confirm images load at all — this is the check that catches a mis-keyed block. Then enable it and reload: images should disappear but layout, CSS and scripts must keep working. (If the page goes unstyled, the `Accept`-header heuristic in `isImageRequest()` is too aggressive.)
-    - **Hide Head-Fi's own header** no longer exists as a setting; the site's header is always shown now. Instead, confirm the opposite: the site header and **both** its logos (the `<header class="p-header">` one and the `.p-nav-smallLogo` one in the sticky nav) are visible, and that the app's floating nav button sits above them without covering the content.
+    - **Hide Head-Fi's own header** no longer exists as a setting; the site's header is always shown now. Instead, confirm the opposite: the site header and **both** its logos (the `<header class="p-header">` one and the `.p-nav-smallLogo` one in the sticky nav) are visible, and that the app's bottom bar does not cover the content.
 11. **Verify Offline Handling**:
     - With the app open on a loaded page, enable airplane mode and navigate to a new section. A **banner** with a Retry button should appear and the previous page should still be visible and readable behind it — it must not go full-screen.
     - Cold-start the app in airplane mode. The **full-screen** error should appear instead, since there is no page behind it.
     - Tap Retry after re-enabling the network and confirm it recovers.
 12. **Verify the Sign-In Prompt & Permission Feedback**:
-    - Sign out (or clear the app's data). A sign-in prompt card should appear at the top of the page and the overflow menu's member shortcuts should be hidden.
+    - Sign out (or clear the app's data). A sign-in prompt card should appear at the top of the page, and the member options (Watched, Messages, Bookmarks, Alerts) should be hidden from the bottom bar.
     - Tap Sign in and confirm it lands on `/login/` with "Stay logged in" pre-checked (see A).
     - Dismiss the prompt and confirm it does not reappear until the process is restarted.
     - Enable Background Unread Notifications and **deny** the notification permission. A snackbar should explain that unread alerts will not be posted and where to re-enable them. Confirm the toggle's state is still coherent afterwards.
@@ -241,18 +250,17 @@ F:\AI stuff\HeadFi-Org\
     - With a page loaded, open the account sheet and toggle dark mode / ad blocker / header hiding *without* reloading the page. The change should take effect immediately. If nothing happens, the `LaunchedEffect` in `HeadFiWebView.kt` is running against a null `WebView` again.
 
 ### Potential Future Enhancements
-- **Suppress notifications while the app is in the foreground** — e.g. via `ProcessLifecycleOwner` (`androidx.lifecycle:lifecycle-process`) so an alert that arrives while the user is actively reading doesn't also raise a notification.
 - **Per-thread / watched-thread notifications** — the poller currently only looks at global alert and conversation counts; scraping `/watched/threads` would allow notifying on replies to specific threads.
-- **Manual "Check now" action** — a `OneTimeWorkRequest` triggered from the account sheet so users can force an immediate refresh instead of waiting for the interval.
 - **Notification grouping** — combine the alerts and conversations notifications into a single summary group when both fire in the same run.
 
 ### Known Debt & Rough Edges
+- **Bottom bar label width.** Four items plus Profile fit the labels at typical phone widths, but "Classifieds" and "Bookmarks" may still ellipsize on screens narrower than about 360 dp. The next step would be to shorten the labels or drop the cap to three.
+- **Default bar changed to Home, Forums, What's New and Classifieds (Head Gear dropped).** Existing five-item selections keep their first four entries in saved order.
 - **`WebView.FindListener` is deprecated as of API 33.** Find-in-page still uses it (with `@Suppress("DEPRECATION")`) to get the match count, and there is no clean replacement — the modern API is `findAllAsync`/`findNext` plus your own DOM query. It works today, but it will need reworking.
-- **Site-layout switching reloads the page**, so flipping to Desktop mid-thread loses scroll position. Unavoidable given how User-Agents work; could be softened by preserving the scroll offset across the reload.
-- **The sign-in prompt is session-scoped only.** It is a `remember { mutableStateOf(true) }`, so it reappears on every cold start until the user signs in. Persisting the dismissal would be friendlier.
+- **Site-layout switching reloads the page.** The scroll offset is saved before the reload and restored in `onPageFinished` (`HeadFiWebView.kt`), so the position survives, but it is unverified on device.
 - **Denied notification permission only raises a snackbar.** There is no path to app settings, so the user has to find it themselves; an intent to `ACTION_APPLICATION_DETAILS_SETTINGS` would close that loop.
 - **Text zoom and Data Saver are applied live** to an already-loaded page, which is untested. `textZoom` in particular may need a reflow before the change is fully visible.
-- **The v1.4.0 floating nav button has never been run on a device.** It compiles and the brace structure balances, but it is a layout change with real risk: the button is an overlay inside the content `Box`, so it can overlap the WebView, the sign-in prompt and the offline banner, and the progress indicator now sits on the very top edge where the status bar may cover it. Check all three before trusting it.
-- **Only five navigation destinations exist.** Member shortcuts were added to the overflow menu instead of a sixth nav item; if the account area grows, a dedicated destination would surface them better than a menu.
-- **The offline banner has no connectivity listener**, so "Retry" is the only recovery path — it will not clear itself when the network comes back.
+- **Denied notification permission** now shows a snackbar with a *Settings* action that opens the app's notification settings.
+- **The offline banner reconnects itself.** A default-network callback clears the error and reloads when the network returns (`HeadFiAppScreen.kt`). Retry still works.
 - **Cloudflare Turnstile can strand a fresh install (highest-severity open risk).** Confirmed on device: a clean install lands on `/bot/challenge` and does not auto-clear. Tapping the widget at several coordinates and waiting roughly two minutes did not complete it. Existing installs survive on a `cf_clearance` cookie, so this stays invisible until that cookie expires or the user clears app data — at which point the app looks broken with no visible way forward. Worth investigating: the widget is `data-size="compact"` inside `.hfbot_challenge_widget`, and the page's own error text blames ad blockers and privacy extensions for exactly this failure mode. `AdBlockEngine` already allowlists `challenges.cloudflare.com`, so the likely culprit is something else — possibly the scrubbed User-Agent, or the challenge needing a second navigation once `cf_clearance` is set.
+- **Mitigation added (unverified on device):** `TurnstileChallengeWatcher` in `HeadFiWebView.kt` polls for `cf_clearance` while the page is on `/bot/challenge` (for up to 3 minutes) and reloads the home page once it appears. It is capped at 2 reloads. If this does not fix the stall, the User-Agent and client-hint headers are the next suspects.

@@ -1,12 +1,19 @@
 package org.headfi.app.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,71 +28,72 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.MailOutline
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.VerticalAlignTop
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -105,13 +113,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
+import org.headfi.app.model.BottomBarItem
 import org.headfi.app.model.HeadFiSection
 import org.headfi.app.model.QuickDestination
 import org.headfi.app.model.SiteLayout
 import org.headfi.app.model.ThemeMode
 import org.headfi.app.model.UserSessionState
 import org.headfi.app.ui.components.AccountAndSettingsSheet
-import org.headfi.app.ui.components.HeadFiMonochromeLogoIcon
 import org.headfi.app.ui.components.HeadFiWebView
 import org.headfi.app.ui.components.SearchHeadFiDialog
 import org.headfi.app.util.DownloadAndShareHelper
@@ -140,9 +148,7 @@ fun HeadFiAppScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
-    var showOverflowMenu by remember { mutableStateOf(false) }
     var longPressedImageUrl by remember { mutableStateOf<String?>(null) }
-    var showSignInPrompt by remember { mutableStateOf(true) }
 
     // Find-in-page state
     var findInPageVisible by remember { mutableStateOf(false) }
@@ -189,12 +195,39 @@ fun HeadFiAppScreen(
     ) { granted ->
         if (!granted) {
             coroutineScope.launch {
-                snackbarHostState.showSnackbar(
-                    message = "Notifications are blocked, so unread alerts won't be posted. " +
-                        "Enable them in Android Settings > Apps > Head-Fi > Notifications.",
+                val result = snackbarHostState.showSnackbar(
+                    message = "Notifications are blocked, so unread alerts won't be posted.",
+                    actionLabel = "Settings",
                     duration = SnackbarDuration.Long
                 )
+                if (result == SnackbarResult.ActionPerformed) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    )
+                }
             }
+        }
+    }
+
+    // Reconnect automatically: when the network comes back while a load error is
+    // showing, clear the error and reload instead of waiting for Retry.
+    DisposableEffect(Unit) {
+        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
+        val mainHandler = Handler(Looper.getMainLooper())
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                mainHandler.post {
+                    if (viewModel.networkError.value != null) {
+                        viewModel.onNetworkError(null)
+                        webViewRef?.reload()
+                    }
+                }
+            }
+        }
+        connectivityManager?.registerDefaultNetworkCallback(callback)
+        onDispose {
+            connectivityManager?.unregisterNetworkCallback(callback)
         }
     }
 
@@ -215,10 +248,6 @@ fun HeadFiAppScreen(
     // return as soon as the user scrolls up again
     var barsVisible by remember { mutableStateOf(true) }
     val barScrollTracker = remember { SmartBarScrollTracker() }
-
-    // Last known document scroll offset, used to hide the scroll-to-top FAB
-    // while the user is already near the top of the page.
-    var lastScrollY by remember { mutableStateOf(0) }
 
     // A freshly loaded page always starts with the bars visible
     LaunchedEffect(currentUrl, isLoading) {
@@ -257,6 +286,7 @@ fun HeadFiAppScreen(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useNavigationRail = maxWidth >= 600.dp
+        val visibleBarItems = preferences.bottomBarItems.filter { it.isVisibleTo(sessionState.isSignedIn) }
 
         val onSectionClick: (HeadFiSection) -> Unit = { section ->
             if (selectedSection == section) {
@@ -270,31 +300,30 @@ fun HeadFiAppScreen(
             }
         }
 
+        val onBarItemClick: (BottomBarItem) -> Unit = { item ->
+            when (item) {
+                BottomBarItem.BACK -> webViewRef?.goBack()
+                BottomBarItem.FORWARD -> webViewRef?.goForward()
+                BottomBarItem.REFRESH -> webViewRef?.reload()
+                BottomBarItem.SEARCH -> showSearchDialog = true
+                BottomBarItem.FIND_IN_PAGE -> findInPageVisible = true
+                BottomBarItem.WATCHED_THREADS -> webViewRef?.loadUrl(QuickDestination.WATCHED_THREADS.url)
+                BottomBarItem.CONVERSATIONS -> webViewRef?.loadUrl(QuickDestination.CONVERSATIONS.url)
+                BottomBarItem.BOOKMARKS -> webViewRef?.loadUrl(QuickDestination.BOOKMARKS.url)
+                BottomBarItem.ALERTS -> webViewRef?.loadUrl(QuickDestination.ALERTS.url)
+                BottomBarItem.SHARE -> DownloadAndShareHelper.sharePage(
+                    context = context,
+                    title = pageTitle,
+                    url = currentUrl
+                )
+                BottomBarItem.OPEN_EXTERNAL -> DownloadAndShareHelper.openInCustomTab(context, currentUrl)
+                else -> item.section?.let(onSectionClick)
+            }
+        }
+
         val appBody: @Composable () -> Unit = {
         Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            floatingActionButton = {
-                // Only offer "scroll to top" once there is somewhere to scroll
-                // back from.
-                if (lastScrollY > FAB_VISIBILITY_THRESHOLD_PX) {
-                    SmallFloatingActionButton(
-                        onClick = {
-                            webViewRef?.evaluateJavascript(
-                                "window.scrollTo({top: 0, behavior: 'smooth'});",
-                                null
-                            )
-                        },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        shape = MaterialTheme.shapes.medium
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.VerticalAlignTop,
-                            contentDescription = "Scroll to top"
-                        )
-                    }
-                }
-            }
+            snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { innerPadding ->
             Box(
                 modifier = Modifier
@@ -324,7 +353,6 @@ fun HeadFiAppScreen(
                         longPressedImageUrl = imageUrl
                     },
                     onWebViewScrolled = { scrollY, oldScrollY ->
-                        lastScrollY = scrollY
                         // Fed by both the WebView's OnScrollChangeListener and the
                         // page's own `scroll` listener; each passes its own delta.
                         barScrollTracker
@@ -338,9 +366,7 @@ fun HeadFiAppScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Slim loading indicator pinned to the very top edge. It used to
-                // live inside the app bar; with a floating bar there is no full-width
-                // surface to hang it on, so it sits on the top edge of the WebView.
+                // Slim loading indicator pinned to the very top edge of the WebView.
                 AnimatedVisibility(
                     visible = isLoading && loadProgress in 1..99,
                     enter = fadeIn(),
@@ -357,194 +383,11 @@ fun HeadFiAppScreen(
                     )
                 }
 
-                // Floating navigation button. This replaces the old full-width app
-                // bar: it carries only page navigation and the overflow menu, and it
-                // floats over the WebView instead of pushing it down. It hides and
-                // returns with the same smart-scroll behaviour as the old bar.
-                // Everything else moved - profile to the end of the bottom bar,
-                // search into the overflow menu - and the site's own header is left
-                // alone so it renders the way Head-Fi intends.
-                AnimatedVisibility(
-                    visible = barsVisible,
-                    enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 12.dp)
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        tonalElevation = 3.dp,
-                        shadowElevation = 6.dp
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        ) {
-                            if (canGoBack) {
-                                IconButton(onClick = { webViewRef?.goBack() }) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                        contentDescription = "Back"
-                                    )
-                                }
-                            } else {
-                                IconButton(
-                                    onClick = { webViewRef?.loadUrl(HeadFiSection.HOME.url) }
-                                ) {
-                                    HeadFiMonochromeLogoIcon(
-                                        size = 24.dp,
-                                        tint = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                            if (canGoForward) {
-                                IconButton(onClick = { webViewRef?.goForward() }) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
-                                        contentDescription = "Forward"
-                                    )
-                                }
-                            }
-                            Box {
-                                IconButton(onClick = { showOverflowMenu = true }) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.MoreVert,
-                                        contentDescription = "More options"
-                                    )
-                                }
-
-                                    DropdownMenu(
-                                        expanded = showOverflowMenu,
-                                        onDismissRequest = { showOverflowMenu = false },
-                                        shape = MaterialTheme.shapes.large
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Refresh Page") },
-                                            leadingIcon = {
-                                                Icon(Icons.Outlined.Refresh, contentDescription = null)
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                webViewRef?.reload()
-                                            }
-                                        )
-                                        if (canGoForward) {
-                                            DropdownMenuItem(
-                                                text = { Text("Go Forward") },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        Icons.AutoMirrored.Outlined.ArrowForward,
-                                                        contentDescription = null
-                                                    )
-                                                },
-                                                onClick = {
-                                                    showOverflowMenu = false
-                                                    webViewRef?.goForward()
-                                                }
-                                            )
-                                        }
-                                        DropdownMenuItem(
-                                            text = { Text("Search Head-Fi") },
-                                            leadingIcon = {
-                                                Icon(Icons.Outlined.Search, contentDescription = null)
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                showSearchDialog = true
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Find in Page") },
-                                            leadingIcon = {
-                                                Icon(Icons.Outlined.Search, contentDescription = null)
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                findInPageVisible = true
-                                            }
-                                        )
-                                        if (sessionState.isLoggedIn || sessionState.hasRememberMeCookie) {
-                                            HorizontalDivider()
-                                            DropdownMenuItem(
-                                                text = { Text(QuickDestination.WATCHED_THREADS.label) },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        Icons.Outlined.Visibility,
-                                                        contentDescription = null
-                                                    )
-                                                },
-                                                onClick = {
-                                                    showOverflowMenu = false
-                                                    webViewRef?.loadUrl(QuickDestination.WATCHED_THREADS.url)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text(QuickDestination.CONVERSATIONS.label) },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        Icons.Outlined.MailOutline,
-                                                        contentDescription = null
-                                                    )
-                                                },
-                                                onClick = {
-                                                    showOverflowMenu = false
-                                                    webViewRef?.loadUrl(QuickDestination.CONVERSATIONS.url)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text(QuickDestination.BOOKMARKS.label) },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        Icons.Outlined.BookmarkBorder,
-                                                        contentDescription = null
-                                                    )
-                                                },
-                                                onClick = {
-                                                    showOverflowMenu = false
-                                                    webViewRef?.loadUrl(QuickDestination.BOOKMARKS.url)
-                                                }
-                                            )
-                                        }
-                                        DropdownMenuItem(
-                                            text = { Text("Share Thread / Page") },
-                                            leadingIcon = {
-                                                Icon(Icons.Outlined.Share, contentDescription = null)
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                DownloadAndShareHelper.sharePage(
-                                                    context = context,
-                                                    title = pageTitle,
-                                                    url = currentUrl
-                                                )
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Open in External Browser") },
-                                            leadingIcon = {
-                                                Icon(Icons.Outlined.OpenInBrowser, contentDescription = null)
-                                            },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                DownloadAndShareHelper.openInCustomTab(context, currentUrl)
-                                            }
-                                        )
-                                    }
-                            }
-                        }
-                    }
-                }
-
                 // Sign-in prompt: the app's whole value proposition (persistent
                 // login, unread badges, background notifications) is invisible
                 // until the user signs in, and the button used to be buried in
                 // the account sheet.
-                if (showSignInPrompt &&
-                    !sessionState.isLoggedIn &&
-                    !sessionState.hasRememberMeCookie
-                ) {
+                if (!preferences.signInPromptDismissed && !sessionState.isSignedIn) {
                     Card(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -592,7 +435,7 @@ fun HeadFiAppScreen(
                             ) {
                                 Text("Sign in")
                             }
-                            IconButton(onClick = { showSignInPrompt = false }) {
+                            IconButton(onClick = viewModel::dismissSignInPrompt) {
                                 Icon(
                                     imageVector = Icons.Outlined.Close,
                                     contentDescription = "Dismiss",
@@ -732,32 +575,30 @@ fun HeadFiAppScreen(
                         shrinkHorizontally(shrinkTowards = Alignment.Start)
                 ) {
                     NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                        HeadFiSection.entries.forEach { section ->
+                        visibleBarItems.forEach { item ->
+                            val selected = item.section == selectedSection
                             NavigationRailItem(
-                                selected = selectedSection == section,
-                                onClick = { onSectionClick(section) },
+                                selected = selected,
+                                onClick = { onBarItemClick(item) },
+                                enabled = isBarItemEnabled(item, canGoBack, canGoForward),
                                 icon = {
-                                    Icon(
-                                        imageVector = if (selectedSection == section) {
-                                            section.selectedIcon
-                                        } else {
-                                            section.unselectedIcon
-                                        },
-                                        contentDescription = section.title
+                                    BottomBarItemIcon(
+                                        item = item,
+                                        selected = selected,
+                                        badgeCount = badgeCountFor(item, sessionState)
                                     )
                                 },
                                 label = {
                                     Text(
-                                        text = section.title,
+                                        text = item.label,
                                         style = MaterialTheme.typography.labelMedium,
                                         maxLines = 1
                                     )
                                 }
                             )
                         }
-                            // Profile moved here from the old app bar. It sits at the
-                            // end of the bar and carries the unread badge, so the
-                            // alert count is still visible without a top-bar button.
+                            // Profile sits at the end of the bar and carries the unread
+                            // badge, so the alert count is visible without a top-bar button.
                             NavigationRailItem(
                                 selected = false,
                                 onClick = { showAccountSheet = true },
@@ -803,60 +644,47 @@ fun HeadFiAppScreen(
                     exit = slideOutVertically(targetOffsetY = { it }) +
                         shrinkVertically(shrinkTowards = Alignment.Bottom)
                 ) {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                        HeadFiSection.entries.forEach { section ->
-                            NavigationBarItem(
-                                selected = selectedSection == section,
-                                onClick = { onSectionClick(section) },
+                    HeadFiBottomBar {
+                        visibleBarItems.forEach { item ->
+                            val selected = item.section == selectedSection
+                            BottomBarSlot(
+                                label = item.shortLabel,
+                                selected = selected,
+                                enabled = isBarItemEnabled(item, canGoBack, canGoForward),
+                                onClick = { onBarItemClick(item) },
                                 icon = {
-                                    Icon(
-                                        imageVector = if (selectedSection == section) {
-                                            section.selectedIcon
-                                        } else {
-                                            section.unselectedIcon
-                                        },
-                                        contentDescription = section.title
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = section.title,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        maxLines = 1
+                                    BottomBarItemIcon(
+                                        item = item,
+                                        selected = selected,
+                                        badgeCount = badgeCountFor(item, sessionState)
                                     )
                                 }
                             )
                         }
-                            // Profile moved here from the old app bar. It sits at the
-                            // end of the bar and carries the unread badge, so the
-                            // alert count is still visible without a top-bar button.
-                            NavigationBarItem(
-                                selected = false,
-                                onClick = { showAccountSheet = true },
-                                icon = {
-                                    BadgedBox(
-                                        badge = {
-                                            if (sessionState.totalUnread > 0) {
-                                                Badge {
-                                                    Text(sessionState.totalUnread.toString())
-                                                }
+                        // Profile sits at the end of the bar and carries the unread
+                        // badge, so the alert count is visible without a top-bar button.
+                        BottomBarSlot(
+                            label = profileLabelFor(sessionState),
+                            selected = false,
+                            enabled = true,
+                            onClick = { showAccountSheet = true },
+                            icon = {
+                                BadgedBox(
+                                    badge = {
+                                        if (sessionState.totalUnread > 0) {
+                                            Badge {
+                                                Text(sessionState.totalUnread.toString())
                                             }
                                         }
-                                    ) {
-                                        Icon(
-                                            imageVector = profileIconFor(sessionState),
-                                            contentDescription = "Account & Settings"
-                                        )
                                     }
-                                },
-                                label = {
-                                    Text(
-                                        text = profileLabelFor(sessionState),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        maxLines = 1
+                                ) {
+                                    Icon(
+                                        imageVector = profileIconFor(sessionState),
+                                        contentDescription = "Account & Settings"
                                     )
                                 }
-                            )
+                            }
+                        )
                     }
                 }
             }
@@ -887,7 +715,12 @@ fun HeadFiAppScreen(
             onPollIntervalChange = viewModel::setPollInterval,
             onTextSizeChange = viewModel::setTextSize,
             onBlockImagesChange = viewModel::setBlockImages,
-            onSiteLayoutChange = viewModel::setSiteLayout
+            onSiteLayoutChange = viewModel::setSiteLayout,
+            onBottomBarItemsChange = viewModel::setBottomBarItems,
+            onCheckUnreadNowClick = {
+                viewModel.checkUnreadNow()
+                Toast.makeText(context, "Checking Head-Fi for new activity…", Toast.LENGTH_SHORT).show()
+            }
         )
     }
 
@@ -1087,8 +920,117 @@ private class SmartBarScrollTracker {
     }
 }
 
-/** Below this scroll offset the "scroll to top" FAB has nothing to do. */
-private const val FAB_VISIBILITY_THRESHOLD_PX = 300
+private val BOTTOM_BAR_HEIGHT = 72.dp
+
+/**
+ * Bottom bar with equal-width slots. Unlike the stock NavigationBar, the selected
+ * slot is allowed to grow so its label fits, and all slots share one height so
+ * icons and labels line up across the row.
+ */
+@Composable
+private fun HeadFiBottomBar(content: @Composable RowScope.() -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .height(BOTTOM_BAR_HEIGHT)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun RowScope.BottomBarSlot(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    val haptics = LocalHapticFeedback.current
+    val slotWeight by animateFloatAsState(
+        targetValue = if (selected) 1.5f else 1f,
+        label = "bottomBarSlotWeight"
+    )
+    val contentColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Column(
+        modifier = Modifier
+            .weight(slotWeight)
+            .fillMaxHeight()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(enabled = enabled, role = Role.Tab) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
+            .padding(top = 6.dp, bottom = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top
+    ) {
+        // Tab-style indicator above the active slot.
+        Box(
+            modifier = Modifier
+                .width(24.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(if (selected) contentColor else Color.Transparent)
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
+            Box(modifier = Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                icon()
+            }
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = contentColor,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+private fun isBarItemEnabled(item: BottomBarItem, canGoBack: Boolean, canGoForward: Boolean): Boolean =
+    when (item) {
+        BottomBarItem.BACK -> canGoBack
+        BottomBarItem.FORWARD -> canGoForward
+        else -> true
+    }
+
+private fun badgeCountFor(item: BottomBarItem, session: UserSessionState): Int =
+    when (item) {
+        BottomBarItem.ALERTS -> session.unreadAlerts
+        BottomBarItem.CONVERSATIONS -> session.unreadConversations
+        else -> 0
+    }
+
+@Composable
+private fun BottomBarItemIcon(item: BottomBarItem, selected: Boolean, badgeCount: Int) {
+    BadgedBox(
+        badge = {
+            if (badgeCount > 0) {
+                Badge { Text(badgeCount.toString()) }
+            }
+        }
+    ) {
+        Icon(
+            imageVector = if (selected) item.selectedIcon else item.icon,
+            contentDescription = item.label
+        )
+    }
+}
 
 /**
  * Icon for the profile entry that now lives at the end of the bottom bar.

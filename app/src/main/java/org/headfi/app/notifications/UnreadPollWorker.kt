@@ -2,6 +2,8 @@ package org.headfi.app.notifications
 
 import android.content.Context
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.flow.first
@@ -27,6 +29,7 @@ class UnreadPollWorker(
     companion object {
         private const val TAG = "HeadFiUnreadPoll"
         private const val POLL_URL = "https://www.head-fi.org/"
+        const val INPUT_MANUAL = "manual"
 
         /** Enough to cover `XF.config`, which lives in the document head. */
         private const val MAX_HTML_CHARS = 400_000
@@ -59,6 +62,17 @@ class UnreadPollWorker(
         val counts = runCatching { fetchUnreadCounts(cookieHeader) }
             .onFailure { Log.w(TAG, "Unread poll failed", it) }
             .getOrNull() ?: return Result.retry()
+
+        // The app is already on screen and shows the same badges, so skip the
+        // system notification. lastNotified is left alone so anything still unread
+        // is announced once the app goes to the background. A manual check always
+        // reports, because it is started from the settings sheet.
+        val isManual = inputData.getBoolean(INPUT_MANUAL, false)
+        val appInForeground = ProcessLifecycleOwner.get().lifecycle.currentState
+            .isAtLeast(Lifecycle.State.STARTED)
+        if (appInForeground && !isManual) {
+            return Result.success()
+        }
 
         val (lastAlerts, lastConversations) = repository.lastNotifiedCounts()
 

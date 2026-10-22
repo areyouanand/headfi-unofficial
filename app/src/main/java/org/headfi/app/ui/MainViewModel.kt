@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.headfi.app.data.SessionPreferencesRepository
 import org.headfi.app.model.AppPreferences
+import org.headfi.app.model.BottomBarItem
 import org.headfi.app.model.HeadFiSection
 import org.headfi.app.model.PollInterval
 import org.headfi.app.model.SiteLayout
@@ -165,6 +166,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun logoutAndClearSession(onComplete: () -> Unit) {
         viewModelScope.launch {
             repository.clearSessionData()
+            // Signing out again should bring the sign-in prompt back.
+            repository.setSignInPromptDismissed(false)
             repository.updateLastNotified(0, 0)
             HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_ALERTS)
             HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_CONVERSATIONS)
@@ -203,6 +206,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSiteLayout(layout: SiteLayout) {
         viewModelScope.launch { repository.setSiteLayout(layout) }
+    }
+
+    fun setBottomBarItems(items: List<BottomBarItem>) {
+        viewModelScope.launch { repository.setBottomBarItems(items) }
+    }
+
+    fun dismissSignInPrompt() {
+        viewModelScope.launch { repository.setSignInPromptDismissed(true) }
+    }
+
+    fun checkUnreadNow() {
+        UnreadPollScheduler.checkNow(getApplication())
     }
 
     fun setUnreadNotificationsEnabled(enabled: Boolean) {

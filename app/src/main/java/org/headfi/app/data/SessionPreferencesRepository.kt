@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.headfi.app.model.AppPreferences
+import org.headfi.app.model.BottomBarItem
 import org.headfi.app.model.PollInterval
 import org.headfi.app.model.SiteLayout
 import org.headfi.app.model.TextSize
@@ -41,6 +42,8 @@ class SessionPreferencesRepository(private val context: Context) {
         val POLL_INTERVAL = stringPreferencesKey("poll_interval")
         val TEXT_SIZE = stringPreferencesKey("text_size")
         val SITE_LAYOUT = stringPreferencesKey("site_layout")
+        val BOTTOM_BAR_ITEMS = stringPreferencesKey("bottom_bar_items")
+        val SIGN_IN_PROMPT_DISMISSED = booleanPreferencesKey("sign_in_prompt_dismissed")
         val LAST_NOTIFIED_ALERTS = intPreferencesKey("last_notified_alerts")
         val LAST_NOTIFIED_CONVERSATIONS = intPreferencesKey("last_notified_conversations")
     }
@@ -60,7 +63,9 @@ class SessionPreferencesRepository(private val context: Context) {
             pollInterval = PollInterval.fromName(prefs[Keys.POLL_INTERVAL]),
             textSize = TextSize.fromName(prefs[Keys.TEXT_SIZE]),
             blockImages = prefs[Keys.BLOCK_IMAGES] ?: false,
-            siteLayout = SiteLayout.fromName(prefs[Keys.SITE_LAYOUT])
+            siteLayout = SiteLayout.fromName(prefs[Keys.SITE_LAYOUT]),
+            bottomBarItems = BottomBarItem.fromNames(prefs[Keys.BOTTOM_BAR_ITEMS]),
+            signInPromptDismissed = prefs[Keys.SIGN_IN_PROMPT_DISMISSED] ?: false
         )
     }
 
@@ -109,6 +114,18 @@ class SessionPreferencesRepository(private val context: Context) {
 
     suspend fun setSiteLayout(layout: SiteLayout) {
         context.dataStore.edit { it[Keys.SITE_LAYOUT] = layout.name }
+    }
+
+    suspend fun setSignInPromptDismissed(dismissed: Boolean) {
+        context.dataStore.edit { it[Keys.SIGN_IN_PROMPT_DISMISSED] = dismissed }
+    }
+
+    suspend fun setBottomBarItems(items: List<BottomBarItem>) {
+        val stored = items
+            .distinct()
+            .take(BottomBarItem.MAX_SELECTED)
+            .joinToString(",") { it.name }
+        context.dataStore.edit { it[Keys.BOTTOM_BAR_ITEMS] = stored }
     }
 
     /**

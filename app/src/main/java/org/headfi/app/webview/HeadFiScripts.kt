@@ -147,8 +147,7 @@ object HeadFiScripts {
                 // Head-Fi's own header is intentionally left alone. The app used to
                 // offer a "hide the site header" option, but the site's header is part
                 // of how Head-Fi presents itself and hiding it produced a half-hidden
-                // result (a second logo lives in the sticky nav). The app's chrome is
-                // now a single floating nav button, which is enough.
+                // result (a second logo lives in the sticky nav).
 
                 // Do not override the Cloudflare Turnstile bot challenge widget if active
                 var isBotChallenge = document.body && document.body.getAttribute('data-template') === 'hfbot_challenge_widget';

@@ -27,18 +27,18 @@ Grab the latest APK from the [**Releases**](https://github.com/areyouanand/headf
 
 - **Login that survives reboots** — dual-layer cookie persistence (native `CookieManager` SQLite flush + a DataStore vault that re-injects `xf_*`/`cf_*` cookies on cold boot). "Stay logged in" is auto-checked so the long-lived `xf_user` cookie is always issued.
 - **XenForo session bridge** — username, avatar, unread alerts and conversations show up natively in the top bar and account sheet.
-- **Material 3 Expressive shell** — bottom navigation bar on phones, navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, find-in-page, search, scroll-to-top FAB.
-- **Floating round nav button** — the app bar is a single rounded button that floats over the page instead of pushing it down. It carries only page navigation and the overflow menu, and still slides away while you read and returns when you scroll up. Your profile button lives at the end of the bottom bar with your unread badge on it.
-- **Smart auto-hiding toolbars** — the floating nav button and the bottom navigation slide away while you scroll down to read and slide back the moment you scroll up (always visible near the top of a page).
-- **Reading & layout controls** — four text-size steps, a Mobile/Desktop site-layout switch, and a Data Saver that skips images on a metered connection.
+- **Material 3 Expressive shell** — a custom bottom bar on phones (equal-width slots, with a tab-style indicator on the active section), navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, find-in-page, search.
+- **Customisable bottom bar** — pick up to four shortcuts (sections, back/forward, refresh, search, find in page, watched threads, messages, bookmarks, alerts, share, open in browser) under Account & Settings → Bottom Bar. Profile always sits at the end as the fifth slot, with your unread badge on it.
+- **Smart auto-hiding toolbars** — the bottom navigation bar slides away while you scroll down to read and slides back the moment you scroll up (always visible near the top of a page).
+- **Reading & layout controls** — four text-size steps, a Mobile/Desktop site-layout switch, and a Data Saver that skips images on a metered connection. The scroll position is kept when switching between Mobile and Desktop.
 - **Find in page** — inline search bar with a live match counter and previous/next stepping; system back closes it before it pops history.
-- **Sign-in prompt** — a dismissible prompt appears until you're signed in, since persistent login, unread badges and background notifications are all invisible without a session.
-- **Background unread notifications** — an opt-in WorkManager poller re-checks Head-Fi with your saved `xf_user` cookie (keeping the session warm while the app is closed) and raises a native notification when new alerts or private messages arrive. Choose between 15-minute and 3-hour intervals.
+- **Sign-in prompt** — a prompt appears until you're signed in. Dismissing it sticks until you sign out, since persistent login, unread badges and background notifications are all invisible without a session.
+- **Background unread notifications** — an opt-in WorkManager poller re-checks Head-Fi with your saved `xf_user` cookie (keeping the session warm while the app is closed) and raises a native notification when new alerts or private messages arrive. Choose between 15-minute and 3-hour intervals, or tap **Check now** for an immediate check. Notifications are skipped while the app is open on screen. If notifications are blocked, a snackbar links straight to the system settings.
 - **Camera capture & multi-photo uploads** — the attachment picker offers *Camera* alongside the file picker for forum posts and Classifieds listings, and supports selecting several photos at once.
 - **Theming** — fixed Head-Fi color scheme that mirrors the site's own palette for consistent readability (light/dark/system plus a pure AMOLED black override).
-- **Cloudflare Turnstile friendly** — WebView user agent is scrubbed so challenges treat it as standard Chrome Mobile; Cloudflare/CDN domains are allowlisted while 30+ ad/tracker domains are blocked.
+- **Cloudflare Turnstile friendly** — WebView user agent is scrubbed so challenges treat it as standard Chrome Mobile; Cloudflare/CDN domains are allowlisted while 30+ ad/tracker domains are blocked. If a challenge stalls after clearing, the app reloads the page once the clearance cookie appears.
 - **Image save & share** — long-press any image to save it via `DownloadManager` (with authenticated cookies) or share its URL.
-- **Offline resilience** — losing your connection mid-session shows a Retry banner over the page you were reading rather than blanking it; the full-screen error is reserved for a failed first load.
+- **Offline resilience** — losing your connection mid-session shows a Retry banner over the page you were reading rather than blanking it; the full-screen error is reserved for a failed first load. It reconnects by itself when the network returns.
 - **Monochrome adaptive icon** — vector Head-Fi headphone mark, works as an Android 13+ themed icon.
 
 ## 🔧 Building it yourself

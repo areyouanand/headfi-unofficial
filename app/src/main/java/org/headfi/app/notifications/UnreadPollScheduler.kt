@@ -5,7 +5,9 @@ import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -21,6 +23,30 @@ object UnreadPollScheduler {
 
     private const val TAG = "HeadFiUnreadPoll"
     const val UNIQUE_WORK_NAME = "headfi-unread-poll"
+    private const val MANUAL_WORK_NAME = "headfi-unread-check-now"
+
+    /** Runs one poll straight away. Replaces any manual check already queued. */
+    fun checkNow(context: Context) {
+        runCatching {
+            val request = OneTimeWorkRequestBuilder<UnreadPollWorker>()
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build()
+                )
+                .setInputData(workDataOf(UnreadPollWorker.INPUT_MANUAL to true))
+                .addTag(MANUAL_WORK_NAME)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                MANUAL_WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
+        }.onFailure {
+            Log.w(TAG, "Unable to queue a manual unread check", it)
+        }
+    }
 
     fun sync(context: Context, enabled: Boolean, interval: PollInterval) {
         runCatching {

@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,10 +24,13 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.HideImage
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Badge
@@ -36,6 +41,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +53,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -56,6 +63,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.headfi.app.model.AppPreferences
+import org.headfi.app.model.BottomBarItem
 import org.headfi.app.model.PollInterval
 import org.headfi.app.model.QuickDestination
 import org.headfi.app.model.SiteLayout
@@ -63,7 +71,7 @@ import org.headfi.app.model.TextSize
 import org.headfi.app.model.ThemeMode
 import org.headfi.app.model.UserSessionState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AccountAndSettingsSheet(
     sessionState: UserSessionState,
@@ -81,9 +89,12 @@ fun AccountAndSettingsSheet(
     onPollIntervalChange: (PollInterval) -> Unit,
     onTextSizeChange: (TextSize) -> Unit,
     onBlockImagesChange: (Boolean) -> Unit,
-    onSiteLayoutChange: (SiteLayout) -> Unit
+    onSiteLayoutChange: (SiteLayout) -> Unit,
+    onBottomBarItemsChange: (List<BottomBarItem>) -> Unit,
+    onCheckUnreadNowClick: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isSignedIn = sessionState.isSignedIn
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -222,6 +233,120 @@ fun AccountAndSettingsSheet(
                                 Text("Sign In to Head-Fi.org (Remember Login)")
                             }
                         }
+                    }
+                }
+            }
+
+                        // Bottom Bar Contents
+            Text(
+                text = "Bottom Bar",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Choose what appears in the bar",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${preferences.bottomBarItems.size} of ${BottomBarItem.MAX_SELECTED} " +
+                            "selected. Profile always stays at the end.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val selectedItems = preferences.bottomBarItems
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        BottomBarItem.entries.filter { it.isVisibleTo(isSignedIn) }.forEach { item ->
+                            val selected = item in selectedItems
+                            FilterChip(
+                                selected = selected,
+                                enabled = if (selected) {
+                                    selectedItems.size > 1
+                                } else {
+                                    selectedItems.size < BottomBarItem.MAX_SELECTED
+                                },
+                                onClick = {
+                                    onBottomBarItemsChange(
+                                        if (selected) selectedItems - item else selectedItems + item
+                                    )
+                                },
+                                label = { Text(item.label) }
+                            )
+                        }
+                    }
+
+                    val orderedItems = selectedItems.filter { it.isVisibleTo(isSignedIn) }
+                    if (orderedItems.size > 1) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "Order",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        orderedItems.forEachIndexed { index, item ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = item.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        onBottomBarItemsChange(selectedItems.movedBy(item, -1, isSignedIn))
+                                    },
+                                    enabled = index > 0
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.KeyboardArrowUp,
+                                        contentDescription = "Move ${item.label} up"
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        onBottomBarItemsChange(selectedItems.movedBy(item, 1, isSignedIn))
+                                    },
+                                    enabled = index < orderedItems.lastIndex
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.KeyboardArrowDown,
+                                        contentDescription = "Move ${item.label} down"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = { onBottomBarItemsChange(BottomBarItem.DEFAULT) },
+                        enabled = selectedItems != BottomBarItem.DEFAULT,
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Reset to default")
                     }
                 }
             }
@@ -369,8 +494,7 @@ fun AccountAndSettingsSheet(
                 )
                 // "Hide Head-Fi's own header" was removed deliberately: the site's
                 // header is part of how Head-Fi presents itself, so the app now
-                // leaves it alone and relies on its own floating nav button for
-                // chrome instead.
+                // leaves it alone.
             }
 
             // Background Unread Notifications
@@ -437,6 +561,20 @@ fun AccountAndSettingsSheet(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = onCheckUnreadNowClick,
+                            enabled = isSignedIn,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Check now")
+                        }
                     }
                 }
             }
@@ -518,6 +656,22 @@ fun AccountAndSettingsSheet(
                     )
                 }
             }
+        }
+    }
+}
+
+/** Moves [item] by [offset] among the visible items, leaving hidden items where they are. */
+private fun List<BottomBarItem>.movedBy(item: BottomBarItem, offset: Int, signedIn: Boolean): List<BottomBarItem> {
+    val visible = filter { it.isVisibleTo(signedIn) }
+    val from = visible.indexOf(item)
+    val to = from + offset
+    if (from < 0 || to !in visible.indices) return this
+    val other = visible[to]
+    return map { current ->
+        when (current) {
+            item -> other
+            other -> item
+            else -> current
         }
     }
 }

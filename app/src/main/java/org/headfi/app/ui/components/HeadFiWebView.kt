@@ -3,7 +3,10 @@ package org.headfi.app.ui.components
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.Message
+import android.os.SystemClock
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
@@ -62,6 +65,9 @@ fun HeadFiWebView(
     // CSS re-injection (the AndroidView factory only runs once).
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
+    // Scroll offset to restore after a layout switch reloads the page.
+    var pendingScrollRestore by remember { mutableStateOf<Int?>(null) }
+
     val context = LocalContext.current
     val mobileUserAgent = remember {
         WebSettings.getDefaultUserAgent(context)
@@ -98,9 +104,12 @@ fun HeadFiWebView(
         if (desktopMode != appliedDesktopMode) {
             appliedDesktopMode = desktopMode
             webViewInstance?.let { view ->
-                view.settings.userAgentString =
-                    if (desktopMode) DESKTOP_USER_AGENT else mobileUserAgent
-                view.reload()
+                view.evaluateJavascript("window.scrollY") { raw ->
+                    pendingScrollRestore = raw?.toDoubleOrNull()?.toInt()?.takeIf { it > 0 }
+                    view.settings.userAgentString =
+                        if (desktopMode) DESKTOP_USER_AGENT else mobileUserAgent
+                    view.reload()
+                }
             }
         }
     }
@@ -129,6 +138,8 @@ fun HeadFiWebView(
                 setColorSchemeColors(refreshAccentColor)
                 setProgressBackgroundColorSchemeColor(refreshBackgroundColor)
             }
+
+            val challengeWatcher = TurnstileChallengeWatcher(Handler(Looper.getMainLooper()))
 
             val webView = WebView(ctx).apply {
                 layoutParams = ViewGroup.LayoutParams(
@@ -309,6 +320,17 @@ fun HeadFiWebView(
                             null
                         )
 
+                        pendingScrollRestore?.let { y ->
+                            pendingScrollRestore = null
+                            view.evaluateJavascript("window.scrollTo(0, $y);", null)
+                        }
+
+                        if (url?.contains(CHALLENGE_PATH) == true) {
+                            challengeWatcher.watch(view)
+                        } else {
+                            challengeWatcher.stop()
+                        }
+
                         // Always flush cookies to disk after every page load
                         CookieManager.getInstance().flush()
                     }
@@ -413,6 +435,58 @@ fun HeadFiWebView(
 }
 
 private fun Float.toZoomPercent(): Int = (this * 100).toInt().coerceIn(50, 300)
+
+private const val CHALLENGE_PATH = "/bot/challenge"
+
+/**
+ * Cloudflare Turnstile sometimes clears `cf_clearance` but leaves the challenge
+ * page on screen, waiting for a second navigation. While the challenge page is
+ * showing, this watches for that cookie and reloads the home page once it
+ * appears. Bounded in time and in the number of reloads so it cannot loop.
+ */
+private class TurnstileChallengeWatcher(private val handler: Handler) {
+
+    private var webView: WebView? = null
+    private var deadlineMs = 0L
+    private var redirects = 0
+    private val tick = Runnable { check() }
+
+    fun watch(view: WebView) {
+        if (redirects >= MAX_REDIRECTS) return
+        webView = view
+        deadlineMs = SystemClock.uptimeMillis() + WATCH_WINDOW_MS
+        handler.removeCallbacks(tick)
+        handler.postDelayed(tick, CHECK_INTERVAL_MS)
+    }
+
+    fun stop() {
+        handler.removeCallbacks(tick)
+        webView = null
+    }
+
+    private fun check() {
+        val view = webView ?: return
+        if (SystemClock.uptimeMillis() > deadlineMs) {
+            stop()
+            return
+        }
+        val cookies = CookieManager.getInstance().getCookie(HOME_URL).orEmpty()
+        if (cookies.contains("cf_clearance=")) {
+            redirects++
+            stop()
+            view.loadUrl(HOME_URL)
+            return
+        }
+        handler.postDelayed(tick, CHECK_INTERVAL_MS)
+    }
+
+    private companion object {
+        const val HOME_URL = "https://www.head-fi.org/"
+        const val CHECK_INTERVAL_MS = 2_000L
+        const val WATCH_WINDOW_MS = 180_000L
+        const val MAX_REDIRECTS = 2
+    }
+}
 
 /**
  * True when the request looks like an image. Used by Data Saver to drop images

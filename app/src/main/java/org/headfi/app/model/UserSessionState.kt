@@ -60,6 +60,9 @@ data class UserSessionState(
 ) {
     val totalUnread: Int
         get() = unreadAlerts + unreadConversations
+
+    val isSignedIn: Boolean
+        get() = isLoggedIn || hasRememberMeCookie
 }
 
 data class AppPreferences(
@@ -74,5 +77,7 @@ data class AppPreferences(
     val pollInterval: PollInterval = PollInterval.HOUR_1,
     val textSize: TextSize = TextSize.DEFAULT,
     val blockImages: Boolean = false,
-    val siteLayout: SiteLayout = SiteLayout.MOBILE
+    val siteLayout: SiteLayout = SiteLayout.MOBILE,
+    val bottomBarItems: List<BottomBarItem> = BottomBarItem.DEFAULT,
+    val signInPromptDismissed: Boolean = false
 )
