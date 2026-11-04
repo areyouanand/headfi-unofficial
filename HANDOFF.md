@@ -317,6 +317,7 @@ F:\AI stuff\HeadFi-Org\
 ### Release & Versioning (v1.6.0-beta)
 - **v1.6.0-beta was published to GitHub Releases on 2026-11-04 as a pre-release** (tag `v1.6.0-beta`, versionCode **17** from the commit count, asset `HeadFi-v1.6.0-beta.apk`). Run [41836169433](https://github.com/areyouanand/headfi-unofficial/actions/runs/41836169433) ran the new `testDebugUnitTest` step and then built/published. Because it is a pre-release it does **not** replace v1.5.0 as the repo's Latest release.
 - The release workflow now treats any tag containing a hyphen (`v1.6.0-beta`, `-rc1`, …) as a pre-release: `prerelease: true`, `make_latest: false`, and a beta notice in the release body. A stable `vX.Y.Z` tag behaves exactly as before.
+- **v1.6.0-beta.2** (2026-11-04, run [41869733335](https://github.com/areyouanand/headfi-unofficial/actions/runs/41869733335), versionCode **19**) adds per-post **Like / Quote / Reply / Share**. It supersedes `v1.6.0-beta`; both stay on the releases page as pre-releases, and v1.5.0 is still the repo's Latest release.
 - versionCode 17 is above v1.5.0's 15, so the beta installs cleanly over an existing release without uninstalling.
 
 ### Release & Versioning (v1.5.0)
