@@ -69,6 +69,31 @@ class ContentRepository(context: Context) {
             )
         )
 
+    /**
+     * Subscribes to a thread. XenForo's watch dialog posts `email_subscribe=1|0`
+     * to the thread's `/watch` route; `false` gives in-app alerts only.
+     */
+    suspend fun watchThread(
+        watchUrl: String,
+        csrfToken: String,
+        emailSubscribe: Boolean
+    ): Boolean = client.postForm(
+        url = watchUrl,
+        fields = mapOf(
+            "_xfToken" to csrfToken,
+            "email_subscribe" to if (emailSubscribe) "1" else "0"
+        )
+    )
+
+    suspend fun unwatchThread(unwatchUrl: String, csrfToken: String): Boolean =
+        client.postForm(
+            url = unwatchUrl,
+            fields = mapOf(
+                "_xfToken" to csrfToken,
+                "stop" to "1"
+            )
+        )
+
     suspend fun threadList(url: String): ContentResult<ThreadListPage> {
         cached<ThreadListPage>(url)?.let { return ContentResult.Ready(it) }
 

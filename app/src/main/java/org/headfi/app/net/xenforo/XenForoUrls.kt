@@ -44,6 +44,28 @@ object XenForoUrls {
     /** Latest threads across the whole board; public, no challenge. */
     const val LATEST_THREADS_FEED = "https://www.head-fi.org/forums/-/index.rss"
 
+    /** Canonical permalink for a single post. */
+    fun postUrl(postId: Int): String = "$BASE/posts/$postId/"
+
+    /** XenForo's reaction endpoint for a post. */
+    fun reactionUrl(postId: Int): String = "$BASE/posts/$postId/react"
+
+    /** `/threads/<slug>.<id>/watch` for the given thread URL. */
+    fun watchUrl(threadUrl: String): String = threadAction(threadUrl, "watch")
+
+    /**
+     * XenForo's "Stop watching" posts `stop=1` to the same `/watch` route; there
+     * is no `/unwatch` endpoint (verified against the live switch-overlay control).
+     */
+    fun unwatchUrl(threadUrl: String): String = watchUrl(threadUrl)
+
+    private fun threadAction(url: String, action: String): String {
+        val clean = pathOf(url)
+            .replace(Regex("""/page-\d+/?$"""), "/")
+            .trimEnd('/')
+        return if (clean.startsWith("/threads/")) "$BASE$clean/$action" else "$BASE/threads/"
+    }
+
     fun pathOf(url: String): String = runCatching {
         java.net.URI(url).path.orEmpty()
     }.getOrDefault(url)
@@ -71,10 +93,14 @@ data class PageNav(
     val currentPage: Int = 1,
     val pageCount: Int = 1,
     val previousUrl: String? = null,
-    val nextUrl: String? = null
+    val nextUrl: String? = null,
+    val firstUrl: String? = null,
+    val lastUrl: String? = null
 ) {
     val hasPrevious: Boolean get() = previousUrl != null
     val hasNext: Boolean get() = nextUrl != null
+    val hasFirst: Boolean get() = firstUrl != null && currentPage > 1
+    val hasLast: Boolean get() = lastUrl != null && currentPage < pageCount
 }
 
 object PageNavParser {
@@ -91,11 +117,35 @@ object PageNavParser {
             .maxOrNull()
             ?: current
 
+        val pageCount = maxOf(highestVisible, current)
+
+        // The pager renders "1 … 12 13 14 … 213", so the first and last page
+        // links are normally present even when the middle is collapsed.
+        val pageLinks = document.select(".pageNav-page a[href]")
+            .mapNotNull { link ->
+                val number = link.text().trim().toIntOrNull() ?: return@mapNotNull null
+                number to absoluteHref(link)
+            }
+            .toMap()
+
+        val base = baseUrl(document.baseUri())
+
+        val firstUrl = pageLinks[1] ?: base
+        val lastUrl = when {
+            pageCount <= 1 -> firstUrl
+            pageLinks[pageCount] != null -> pageLinks[pageCount]
+            // Query-based pagers (search) cannot be rebuilt by appending a path.
+            !base.contains('?') -> "${base}page-$pageCount"
+            else -> null
+        }
+
         return PageNav(
             currentPage = current,
-            pageCount = maxOf(highestVisible, current),
+            pageCount = pageCount,
             previousUrl = link(document, "a.pageNav-jump--prev[href]"),
-            nextUrl = link(document, "a.pageNav-jump--next[href]")
+            nextUrl = link(document, "a.pageNav-jump--next[href]"),
+            firstUrl = firstUrl,
+            lastUrl = lastUrl
         )
     }
 
@@ -107,4 +157,16 @@ object PageNavParser {
                 ?.attr("href")
                 ?.takeIf { it.isNotBlank() }
                 ?.let(XenForoUrls::absolute)
+
+    private fun absoluteHref(link: org.jsoup.nodes.Element): String =
+        XenForoUrls.absolute(
+            link.absUrl("href").ifBlank { link.attr("href") }
+        )
+
+    /** Strips `/page-N` and any query so a first/last page can be rebuilt. */
+    private fun baseUrl(url: String): String {
+        if (url.isBlank()) return XenForoUrls.BASE + "/"
+        val path = url.substringBefore('?').replace(Regex("""/page-\d+/?$"""), "/")
+        return if (path.endsWith("/")) path else "$path/"
+    }
 }

@@ -1,7 +1,8 @@
 # Project Handoff: Head-Fi for Android (`org.headfi.app`)
 
 ## 1. Executive Summary
-- **Head-Fi for Android** is a native Kotlin + Jetpack Compose Android client for browsing [Head-Fi.org](https://www.head-fi.org/). It wraps Head-Fi's XenForo 2.3 platform inside a **Material 3 Expressive / Material You** adaptive shell with guaranteed login persistence across app restarts and Android device reboots, custom dark/AMOLED web styling, ad/tracker blocking, background unread notifications, reading and layout controls (text size, Mobile/Desktop site layout, Data Saver), multi-photo uploads with camera capture, and a **monochrome Head-Fi vector adaptive launcher icon**.
+- **Head-Fi for Android** is a native Kotlin + Jetpack Compose Android client for browsing [Head-Fi.org](https://www.head-fi.org/). Forums, thread lists, thread pages, What's New, watched threads, search results and alerts are parsed from Head-Fi's XenForo 2.3 HTML and rendered as native Compose screens; the WebView remains as the sign-in/challenge/form fallback. Around that sit a **Material 3 Expressive / Material You** adaptive shell, guaranteed login persistence across app restarts and device reboots, custom dark/AMOLED web styling, ad/tracker blocking, background unread notifications, reading and layout controls (text size, Mobile/Desktop site layout, Data Saver), multi-photo uploads with camera capture, and a **monochrome Head-Fi vector adaptive launcher icon**.
+- **No data collection, no analytics.** There is no telemetry, crash reporting, advertising, or Firebase SDK in the dependency graph, and no backend of the app's own. The README's Privacy section states this, and it is accurate: the only network destinations are Head-Fi's own pages, RSS feeds and image CDN.
 
 ---
 
@@ -151,36 +152,76 @@ fetched over HTTP and rendered as Compose screens.
   decides native vs. WebView; reply/edit/form URLs are deliberately excluded.
 - **Screens (`ui/native/`)** — native Home hub (unread counts, quick actions,
   latest activity), Forums, ThreadList with pager, Thread reader (avatars, post
-  metadata, quotes, inline images via Coil with the same cookies, "Reply in
-  browser") and Alerts. Headers scroll with the content: the app still has no
-  pinned app bar.
+  date/time, reaction count, quotes, inline images via Coil with the same cookies,
+  "Reply in browser") and Alerts. Headers scroll with the content: the app still
+  has no pinned app bar.
+- **Pagination** — `PageNav` exposes first/previous/next/last URLs read from the
+  rendered pager, and every list renders a five-slot pager (first, prev, page x of
+  y, next, last). "First" and "prev" are disabled on page 1; "next" and "last" on
+  the final page. Search-style query pagers fall back to their rendered links.
+- **Post metadata** — the exact posting date/time comes from the `<time>` element
+  (`data-time`, or `datetime` normalised for XenForo's `+0000` offset) and is
+  formatted locally; the reaction count is derived from the reactions bar's
+  summary text ("You", "You and Bob", "You and 3 others") by
+  `ReactionSummary.countFrom`.
+- **Watching threads (v1.6.0)** — the thread header has a bell that opens a native
+  version of Head-Fi's watch dialog: **Alerts only**, **Alerts + email**, or
+  **Stop watching**. `ThreadPostsParser` detects the current state from the site's
+  switch-overlay control (an `<a href="…/watch">` whose text flips to "Unwatch"),
+  and `ThreadPostsPage` carries `isWatching` plus the watch/unwatch URLs. Watching
+  POSTs `_xfToken` + `email_subscribe=1|0` to `/threads/<slug>.<id>/watch`;
+  stopping posts `_xfToken` + `stop=1` to the **same** route — there is no
+  `/unwatch` endpoint, which is why the first attempt silently did nothing. The
+  cache is invalidated after either action so the Watched list is not stale.
 - **Escape hatch** — *Account & Settings → Reading & Layout → Native reader*.
   Turning it off keeps the user on the same URL but renders it in the WebView,
   and the setting persists. It exists because markup drift is the one real risk
   of a parser-based reader.
-- **Post actions (v1.6.0-beta.2)** — each post renders Like / Quote / Reply /
-  Share. `ThreadPostsParser` reads the reaction endpoint (`a[href*='/react']` with
-  its `data-reaction-id` and label), the per-post quote link
-  (`/reply?quote=<postId>`) and the page CSRF token (`data-csrf`) straight from
-  the rendered page. Like POSTs `_xfToken` + `reaction_id` through
-  `HeadFiContentClient.postForm`, which treats a challenge page, a login page or
-  an `errors` payload as failure — then that post opens in the WebView instead of
-  the app pretending it worked. The reaction is applied optimistically (repeat
-  taps toggle it) rather than reloading the thread, because a reload would throw
-  away the reader's scroll position. Quote/Reply open XenForo's editor with the
-  quote prefilled; Share uses the Android share sheet with the post permalink.
-  **The reaction POST is unverified on-device** — if Head-Fi rejects the request,
-  the browser fallback is what users will see.
+- **Post actions (v1.6.0-beta.2, verified in beta.3)** — each post renders Like /
+  Quote / Reply / Share. `ThreadPostsParser` reads the reaction endpoint when the
+  theme renders it, the per-post quote link (`/reply?quote=<postId>`) and the page
+  CSRF token (`data-csrf`). Head-Fi's live theme omits the reaction anchor, so the
+  Like route is constructed as `/posts/<postId>/react` from the parsed post id.
+  Like POSTs `_xfToken` + `reaction_id` through `HeadFiContentClient.postForm`,
+  which treats a challenge page, a login page or an `errors` payload as failure —
+  then that post opens in the WebView instead of the app pretending it worked.
+  The reaction is applied optimistically (repeat taps toggle it) rather than
+  reloading the thread, because a reload would throw away the reader's scroll
+  position. Reacted state is read back from `.reactionsBar .reactionsBar-link`
+  containing "You". Quote/Reply open XenForo's editor with the quote prefilled;
+  Share uses the Android share sheet with the post permalink.
 - **Debug probe** — debug builds `GET /forums/` once at startup and log a
   one-line classification + parse summary under the `HeadFiContent` logcat tag.
   Useful on a device where automated UI inspection is unavailable; never runs in
   release.
-- **Verified in this workstation**: `testDebugUnitTest` (26 JVM tests covering
-  challenge detection, forum index, thread list, thread posts/formatting, post
-  actions, alerts and the RSS fallback) and `assembleDebug`/`assembleRelease` with
-  R8. **Not verified on a device** — no phone was attached during this work, so
-  live markup against the real site is still unconfirmed (the live RSS endpoints
-  were checked over HTTP and do return the parsed shape).
+- **Verified on device (2026-11-04, OPPO CPH2841 / Android 17, v1.6.0):**
+  the native layer works against the **live** site, not just fixtures. Home's RSS
+  feed listed real threads; the session bridge reported `areyouanand` with
+  "Session cookie active & backed up"; Forums rendered 22 forums in 8 categories;
+  a forum listed 51 threads with unread dots and reply counts; a thread rendered
+  real `bbWrapper` HTML (paragraphs, bold/italic, links, quotes) with working
+  pagination ("Page 1 of 213"); a deep link opened the thread natively.
+- **Post actions were verified live:** Like POSTed to `/posts/<id>/react`, the
+  site's own UI then showed **"You 👍"** on that post, and after a force-stop and
+  relaunch the native button still read the state (parsed from
+  `.reactionsBar-link` = "You"). Quote opened XenForo's editor with the post
+  prefilled. Reaction counts render ("Like · 11" on a post with 11 reactions),
+  post dates render ("Nov 4, 2026 · 10:33 pm"), and post images load inline.
+- **Watching was verified end-to-end:** "Alerts only" made the thread appear first
+  in `/watched/threads` (2 → 3 threads), and "Stop watching" removed it again
+  (3 → 2). Two bugs were found and fixed during this pass:
+  1. The watch selector initially matched the site's nav link `/watched/threads`,
+     so the POST went to the wrong URL and nothing was watched. It now matches
+     only thread-scoped `/threads/<slug>.<id>/watch` anchors.
+  2. "Stop watching" first posted to `/threads/<id>/unwatch`, which does not
+     exist — XenForo posts `stop=1` to the same `/watch` route. Fixed, and the
+     stale Watched list now invalidates its cache after each change.
+- **Also fixed during this pass:** from the browser view with no WebView history,
+  Back exited the app instead of returning to the native screen. `BackHandler` is
+  now enabled whenever a web URL is showing.
+- **Still unverified:** Alerts list, search results, Showcase / Classifieds
+  hand-off, and reaction *removal* (tapping a reacted post re-sends the same
+  reaction id; XenForo's toggle behaviour there is unconfirmed).
 
 ---
 
@@ -314,6 +355,12 @@ F:\AI stuff\HeadFi-Org\
 - **Native content layer (section F) — verified how?** `.\gradlew.bat testDebugUnitTest` runs 26 JVM tests against captured-shape XenForo fixtures, and `assembleDebug`/`assembleRelease` both pass with R8 (confirmed the parsers, `ContentRepository`, `HeadFiContentClient` and the native screens survive shrinking in `mapping.txt`). What remains unverified is the real thing: whether Head-Fi's live markup matches those selectors, and whether `cf_clearance` obtained by the WebView is accepted by OkHttp. Run the debug build on a device and watch `adb logcat -s HeadFiContent` — it logs whether `/forums/` came back as HTML (with category/forum counts) or as a challenge page. If it is a challenge page even after opening the site in the browser view, the UA/cookie bridge is the first suspect.
 - Note: `gradlew` (the Unix shell script) must keep its executable bit — it was briefly committed as `100644`, which broke a Linux CI run, and was fixed in `ee3b4b0`. Windows builds are unaffected either way, so this is easy to regress by accident on a Windows checkout.
 
+### Release & Versioning (v1.6.0)
+- **v1.6.0 is the first stable release with the native reader.** Tag `v1.6.0`; the workflow publishes it as the repo's **Latest release** (no hyphen in the tag, so `make_latest` is true).
+- **Version codes are now commit count + 20.** The native reader was developed against a phone with locally side-loaded builds up to code 30, which would have outranked CI's commit-count codes. The offset in `release.yml` keeps published builds above those test installs; it must only ever increase.
+- The three pre-releases (`v1.6.0-beta`, `v1.6.0-beta.2`) stay on the releases page; `v1.6.0` supersedes them as the stable version.
+- v1.6.0 also adds first/last pagination, per-post date/time and reaction counts, inline post images, and native thread watching (alerts only / alerts + email / stop watching).
+
 ### Release & Versioning (v1.6.0-beta)
 - **v1.6.0-beta was published to GitHub Releases on 2026-11-04 as a pre-release** (tag `v1.6.0-beta`, versionCode **17** from the commit count, asset `HeadFi-v1.6.0-beta.apk`). Run [41836169433](https://github.com/areyouanand/headfi-unofficial/actions/runs/41836169433) ran the new `testDebugUnitTest` step and then built/published. Because it is a pre-release it does **not** replace v1.5.0 as the repo's Latest release.
 - The release workflow now treats any tag containing a hyphen (`v1.6.0-beta`, `-rc1`, …) as a pre-release: `prerelease: true`, `make_latest: false`, and a beta notice in the release body. A stable `vX.Y.Z` tag behaves exactly as before.
@@ -323,7 +370,7 @@ F:\AI stuff\HeadFi-Org\
 ### Release & Versioning (v1.5.0)
 - Release APKs are versioned from the command line: `./gradlew assembleRelease "-PAPP_VERSION_NAME=1.5.0" "-PAPP_VERSION_CODE=14"`. Quote the arguments in PowerShell, or the dots split the argument and Gradle fails.
 - **v1.5.0 was published to GitHub Releases on 2026-10-23.** The tag `v1.5.0` had never been pushed, so for three days GitHub Releases only carried up to v1.4.0 even though `main` was already at the 1.5.0 commit — **CI only publishes when a `v*` tag is pushed**, and nothing else creates releases. Pushing the annotated tag on `6a2379e` triggered the `Build & Publish APK` workflow (run [39955959029](https://github.com/areyouanand/headfi-unofficial/actions/runs/39955959029)), which released `HeadFi-v1.5.0.apk` as versionCode **15** (the commit count, per `release.yml`). The phone's hand-built install is versionCode 14, so the published APK upgrades over it cleanly (15 > 14, the check described below). The next release just needs a `v*` tag on the release commit — same as v1.0.0 through v1.5.0.
-- The version code must increase on every install. The phone had 1.4.0 (code 13), so a build with the default code 1 was rejected with `INSTALL_FAILED_VERSION_DOWNGRADE`. The README says the code is the commit count. Before the next CI release, check that the count is above the code already installed.
+- The version code must increase on every install. The phone had 1.4.0 (code 13), so a build with the default code 1 was rejected with `INSTALL_FAILED_VERSION_DOWNGRADE`. The code is now the commit count plus a 20-commit offset (see `release.yml`), so check it is above the code already installed before the next CI release.
 - Installing over an existing release keeps its data. Uninstalling the debug package (`org.headfi.app.debug`) removes its data, including its login.
 - Screenshots: `adb shell screencap -p /sdcard/x.png`, then `adb pull`. If the viewer cannot decode the file, crop it with `System.Drawing` (`powershell -File`, not inline, so PowerShell does not expand the `$` variables).
 

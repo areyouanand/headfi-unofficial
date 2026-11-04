@@ -1,6 +1,7 @@
 package org.headfi.app.ui.native
 
 import androidx.compose.foundation.background
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,11 +24,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -67,6 +70,9 @@ import org.headfi.app.net.xenforo.RichText
 import org.headfi.app.net.xenforo.TextSpan
 import org.headfi.app.net.xenforo.XenForoUrls
 import org.headfi.app.util.DownloadAndShareHelper
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun ThreadScreen(
@@ -99,13 +105,74 @@ fun ThreadScreen(
     }
     val csrfToken = ready?.value?.csrfToken
 
+    var showWatchDialog by remember { mutableStateOf(false) }
+    var watchBusy by remember { mutableStateOf(false) }
+    var watchingOverride by remember(destination.url) { mutableStateOf<Boolean?>(null) }
+    val isWatching = watchingOverride ?: ready?.value?.isWatching ?: false
+
+    val performWatch: (Boolean) -> Unit = { email ->
+        val csrf = csrfToken
+        if (csrf == null) {
+            showWatchDialog = false
+            onOpenWeb(destination.url)
+        } else {
+            val watchUrl = ready?.value?.watchUrl ?: XenForoUrls.watchUrl(destination.url)
+            scope.launch {
+                watchBusy = true
+                val accepted = repository.watchThread(
+                    watchUrl = watchUrl,
+                    csrfToken = csrf,
+                    emailSubscribe = email
+                )
+                watchBusy = false
+                showWatchDialog = false
+                if (accepted) {
+                    watchingOverride = true
+                    repository.invalidateAll()
+                } else {
+                    onOpenWeb(destination.url)
+                }
+            }
+        }
+    }
+
+    val performUnwatch: () -> Unit = {
+        val csrf = csrfToken
+        if (csrf == null) {
+            showWatchDialog = false
+            onOpenWeb(destination.url)
+        } else {
+            val unwatchUrl = ready?.value?.unwatchUrl ?: XenForoUrls.unwatchUrl(destination.url)
+            scope.launch {
+                watchBusy = true
+                val accepted = repository.unwatchThread(unwatchUrl, csrf)
+                watchBusy = false
+                showWatchDialog = false
+                if (accepted) {
+                    watchingOverride = false
+                    repository.invalidateAll()
+                } else {
+                    onOpenWeb(destination.url)
+                }
+            }
+        }
+    }
+
     // Like/Quote/Reply/Share: only reading was native before v1.6.0-beta.2.
     val reactPost: (ForumPost) -> Unit = { post ->
         val postId = post.postId
-        val reactionUrl = post.reactionUrl
+        // Head-Fi's live theme does not always render the reaction anchor, so
+        // fall back to XenForo's canonical /posts/<id>/react route.
+        val reactionUrl = post.reactionUrl ?: postId?.let(XenForoUrls::reactionUrl)
+        val permalink = post.permalink ?: postId?.let(XenForoUrls::postUrl) ?: destination.url
         if (postId == null || reactionUrl == null || csrfToken == null) {
             // No reaction link (signed out) or no CSRF token: let the site do it.
-            onOpenWeb(post.permalink ?: destination.url)
+            Log.i(
+                "HeadFiReact",
+                "fallback: postId=$postId reactionUrl=$reactionUrl csrf=${csrfToken != null} " +
+                    "post=$permalink"
+            )
+            onOpenWeb(permalink)
         } else if (reactingPostId == null) {
             val wasReacted = reactedOverrides[postId] ?: post.hasReacted
             scope.launch {
@@ -119,7 +186,7 @@ fun ThreadScreen(
                 if (accepted) {
                     reactedOverrides = reactedOverrides + (postId to !wasReacted)
                 } else {
-                    onOpenWeb(post.permalink ?: destination.url)
+                    onOpenWeb(permalink)
                 }
             }
         }
@@ -138,7 +205,9 @@ fun ThreadScreen(
         DownloadAndShareHelper.sharePage(
             context = context,
             title = post.author,
-            url = post.permalink ?: destination.url
+            url = post.permalink
+                ?: post.postId?.let(XenForoUrls::postUrl)
+                ?: destination.url
         )
     }
 
@@ -154,7 +223,9 @@ fun ThreadScreen(
                 },
                 onBack = if (canGoBack) onBack else null,
                 onRefresh = onRefresh,
-                onOpenBrowser = { onOpenWeb(destination.url) }
+                onOpenBrowser = { onOpenWeb(destination.url) },
+                isWatching = isWatching,
+                onWatch = { showWatchDialog = true }
             )
         }
 
@@ -179,12 +250,19 @@ fun ThreadScreen(
                     val isReacted = post.postId
                         ?.let { reactedOverrides[it] }
                         ?: post.hasReacted
+                    // Keep the visible count in step with the optimistic toggle.
+                    val reactionCount = ((post.reactionCount ?: 0) + when {
+                        isReacted && !post.hasReacted -> 1
+                        !isReacted && post.hasReacted -> -1
+                        else -> 0
+                    }).coerceAtLeast(0)
                     PostCard(
                         post = post,
                         textScale = textScale,
                         loadImages = loadImages,
                         isReacted = isReacted,
                         isReacting = reactingPostId == post.postId,
+                        reactionCount = reactionCount,
                         onReact = { reactPost(post) },
                         onQuote = { quotePost(post) },
                         onReply = { replyPost(post) },
@@ -201,11 +279,20 @@ fun ThreadScreen(
                 }
 
                 item {
-                    if (page.pageNav.hasPrevious || page.pageNav.hasNext) {
+                    if (page.pageNav.hasPrevious || page.pageNav.hasNext ||
+                        page.pageNav.hasFirst || page.pageNav.hasLast
+                    ) {
                         PaginationRow(
                             label = "Page ${page.pageNav.currentPage} of ${page.pageNav.pageCount}",
+                            hasFirst = page.pageNav.hasFirst,
                             hasPrevious = page.pageNav.hasPrevious,
                             hasNext = page.pageNav.hasNext,
+                            hasLast = page.pageNav.hasLast,
+                            onFirst = {
+                                page.pageNav.firstUrl?.let {
+                                    onOpenDestination(NativeDestination.Thread(it, title))
+                                }
+                            },
                             onPrevious = {
                                 page.pageNav.previousUrl?.let {
                                     onOpenDestination(NativeDestination.Thread(it, title))
@@ -213,6 +300,11 @@ fun ThreadScreen(
                             },
                             onNext = {
                                 page.pageNav.nextUrl?.let {
+                                    onOpenDestination(NativeDestination.Thread(it, title))
+                                }
+                            },
+                            onLast = {
+                                page.pageNav.lastUrl?.let {
                                     onOpenDestination(NativeDestination.Thread(it, title))
                                 }
                             }
@@ -240,6 +332,65 @@ fun ThreadScreen(
             }
         }
     }
+
+    if (showWatchDialog) {
+        WatchThreadDialog(
+            isWatching = isWatching,
+            busy = watchBusy,
+            onWatch = performWatch,
+            onUnwatch = performUnwatch,
+            onDismiss = { showWatchDialog = false }
+        )
+    }
+}
+
+/**
+ * Mirrors Head-Fi's own watch dialog: alerts-only or alerts plus email, and
+ * "Stop watching" once the thread is already being watched.
+ */
+@Composable
+private fun WatchThreadDialog(
+    isWatching: Boolean,
+    busy: Boolean,
+    onWatch: (email: Boolean) -> Unit,
+    onUnwatch: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(if (isWatching) "Watching this thread" else "Watch this thread") },
+        text = {
+            Text(
+                if (isWatching) {
+                    "You'll get an alert when someone replies. Email notifications " +
+                        "can be changed on the site."
+                } else {
+                    "Get an alert when someone replies. Head-Fi can also email you " +
+                        "about new replies."
+                }
+            )
+        },
+        confirmButton = {
+            if (isWatching) {
+                TextButton(onClick = onUnwatch, enabled = !busy) {
+                    Text("Stop watching")
+                }
+            } else {
+                Row {
+                    TextButton(onClick = { onWatch(false) }, enabled = !busy) {
+                        Text("Alerts only")
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Button(onClick = { onWatch(true) }, enabled = !busy) {
+                        Text("Alerts + email")
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -249,6 +400,7 @@ private fun PostCard(
     loadImages: Boolean,
     isReacted: Boolean,
     isReacting: Boolean,
+    reactionCount: Int,
     onReact: () -> Unit,
     onQuote: () -> Unit,
     onReply: () -> Unit,
@@ -297,7 +449,11 @@ private fun PostCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                post.timestamp?.let {
+                // Absolute date/time where possible: the site's `time` element
+                // carries data-time, and "4 minutes ago" is useless next to a
+                // post you are reading later.
+                val posted = formatPostDate(post.postedAtEpoch) ?: post.timestamp
+                posted?.let {
                     Text(
                         text = it,
                         style = MaterialTheme.typography.labelSmall,
@@ -347,13 +503,13 @@ private fun PostCard(
                 verticalAlignment = Alignment.CenterVertically
         ) {
             PostAction(
-                icon = Icons.Outlined.FavoriteBorder,
-                label = when {
-                    isReacted -> "Reacted"
-                    else -> post.reactionLabel ?: "Like"
+                icon = if (isReacted) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                label = buildString {
+                    append(post.reactionLabel ?: "Like")
+                    if (reactionCount > 0) append(" · $reactionCount")
                 },
                 enabled = !isReacting,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1.25f),
                 onClick = onReact
             )
             PostAction(
@@ -507,6 +663,14 @@ private const val LINK_TAG = "HEADFI_LINK"
 
 /** XenForo's first/default reaction is "Like". */
 private const val DEFAULT_REACTION_ID = 1
+
+private val POST_DATE_FORMAT = DateTimeFormatter.ofPattern("MMM d, yyyy · h:mm a")
+
+private fun formatPostDate(epochSeconds: Long?): String? = epochSeconds?.let { epoch ->
+    Instant.ofEpochSecond(epoch)
+        .atZone(ZoneId.systemDefault())
+        .format(POST_DATE_FORMAT)
+}
 
 private fun RichText.toAnnotatedString(linkColor: Color): AnnotatedString = buildAnnotatedString {
     append(text)

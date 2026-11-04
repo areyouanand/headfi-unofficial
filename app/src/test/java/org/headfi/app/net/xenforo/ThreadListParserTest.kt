@@ -59,5 +59,16 @@ class ThreadListParserTest {
             "https://www.head-fi.org/forums/portable-headphones.4/page-2",
             nav.nextUrl
         )
+        // First/last shortcuts come from the rendered page numbers.
+        assertEquals(
+            "https://www.head-fi.org/forums/portable-headphones.4/",
+            nav.firstUrl
+        )
+        assertFalse(nav.hasFirst)
+        assertEquals(
+            "https://www.head-fi.org/forums/portable-headphones.4/page-3",
+            nav.lastUrl
+        )
+        assertTrue(nav.hasLast)
     }
 }

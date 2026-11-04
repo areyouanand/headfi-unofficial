@@ -31,7 +31,10 @@ jobs:
           else
             echo "name=1.0.0" >> "$GITHUB_OUTPUT"
           fi
-          echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+          # Offset keeps published versionCodes above locally side-loaded test
+          # builds (the native reader was developed against a phone). It must
+          # only ever increase.
+          echo "code=$(( $(git rev-list --count HEAD) + 20 ))" >> "$GITHUB_OUTPUT"
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --no-daemon

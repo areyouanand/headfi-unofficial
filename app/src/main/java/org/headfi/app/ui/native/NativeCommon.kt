@@ -18,7 +18,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.FirstPage
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.LastPage
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.RssFeed
 import androidx.compose.material.icons.outlined.VerifiedUser
@@ -90,7 +94,9 @@ fun NativeHeader(
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
-    onOpenBrowser: (() -> Unit)? = null
+    onOpenBrowser: (() -> Unit)? = null,
+    isWatching: Boolean = false,
+    onWatch: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -121,6 +127,24 @@ fun NativeHeader(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        if (onWatch != null) {
+            IconButton(onClick = onWatch) {
+                Icon(
+                    imageVector = if (isWatching) {
+                        Icons.Outlined.NotificationsActive
+                    } else {
+                        Icons.Outlined.NotificationsNone
+                    },
+                    contentDescription = if (isWatching) "Watching thread" else "Watch thread",
+                    tint = if (isWatching) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
                 )
             }
         }
@@ -421,24 +445,35 @@ fun SectionLabel(text: String) {    Text(
 @Composable
 fun PaginationRow(
     label: String,
+    hasFirst: Boolean,
     hasPrevious: Boolean,
     hasNext: Boolean,
+    hasLast: Boolean,
+    onFirst: () -> Unit,
     onPrevious: () -> Unit,
-    onNext: () -> Unit
+    onNext: () -> Unit,
+    onLast: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 4.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TextButton(onClick = onPrevious, enabled = hasPrevious) { Text("Previous") }
+        IconButton(onClick = onFirst, enabled = hasFirst) {
+            Icon(Icons.Outlined.FirstPage, contentDescription = "First page")
+        }
+        TextButton(onClick = onPrevious, enabled = hasPrevious) { Text("Prev") }
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
         )
         TextButton(onClick = onNext, enabled = hasNext) { Text("Next") }
+        IconButton(onClick = onLast, enabled = hasLast) {
+            Icon(Icons.Outlined.LastPage, contentDescription = "Last page")
+        }
     }
 }

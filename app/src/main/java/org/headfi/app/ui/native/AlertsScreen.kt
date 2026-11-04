@@ -146,18 +146,20 @@ fun AlertsScreen(
                         thickness = 1.dp
                     )
                 }
-                if (page.pageNav.hasPrevious || page.pageNav.hasNext) {
+                if (page.pageNav.hasPrevious || page.pageNav.hasNext ||
+                    page.pageNav.hasFirst || page.pageNav.hasLast
+                ) {
                     item {
                         PaginationRow(
                             label = "Page ${page.pageNav.currentPage} of ${page.pageNav.pageCount}",
+                            hasFirst = page.pageNav.hasFirst,
                             hasPrevious = page.pageNav.hasPrevious,
                             hasNext = page.pageNav.hasNext,
-                            onPrevious = {
-                                page.pageNav.previousUrl?.let(onOpenUrl)
-                            },
-                            onNext = {
-                                page.pageNav.nextUrl?.let(onOpenUrl)
-                            }
+                            hasLast = page.pageNav.hasLast,
+                            onFirst = { page.pageNav.firstUrl?.let(onOpenUrl) },
+                            onPrevious = { page.pageNav.previousUrl?.let(onOpenUrl) },
+                            onNext = { page.pageNav.nextUrl?.let(onOpenUrl) },
+                            onLast = { page.pageNav.lastUrl?.let(onOpenUrl) }
                         )
                     }
                 }

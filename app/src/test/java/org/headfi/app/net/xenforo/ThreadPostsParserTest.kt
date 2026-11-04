@@ -130,6 +130,109 @@ class ThreadPostsParserTest {
     }
 
     @Test
+    fun `detects the current user's reaction from the reactions bar`() {
+        val html = """
+            <article class="message message--post" data-author="Bob" data-content="post-77">
+              <div class="bbWrapper">Nice.</div>
+              <div class="reactionsBar js-reactionsList is-active">
+                <ul class="reactionSummary">
+                  <li><span class="reaction reaction--small reaction--1" data-reaction-id="1"></span></li>
+                </ul>
+                <a class="reactionsBar-link" href="/posts/77/reactions">You</a>
+              </div>
+            </article>
+        """.trimIndent()
+
+        val post = ThreadPostsParser.parse(html).posts.single()
+        assertTrue(post.hasReacted)
+    }
+
+    @Test
+    fun `reads an exact posting time`() {
+        val first = ThreadPostsParser.parse(fixture("thread_posts.html")).posts[0]
+        assertEquals(
+            java.time.OffsetDateTime.parse("2026-11-01T10:00:00Z").toEpochSecond(),
+            first.postedAtEpoch
+        )
+    }
+
+    @Test
+    fun `reads watch state and endpoints`() {
+        val page = ThreadPostsParser.parse(
+            html = fixture("thread_posts.html"),
+            baseUrl = "https://www.head-fi.org/threads/best-closed.500/"
+        )
+
+        assertFalse(page.isWatching)
+        assertEquals(
+            "https://www.head-fi.org/threads/best-closed.500/watch",
+            page.watchUrl
+        )
+        assertEquals(
+            "https://www.head-fi.org/threads/best-closed.500/watch",
+            page.unwatchUrl
+        )
+    }
+
+    @Test
+    fun `ignores the watched threads navigation link`() {
+        val html = """
+            <html data-xf="2.3" data-template="thread_view">
+              <body>
+                <nav>
+                  <a href="/watched/threads">Watched threads</a>
+                  <a href="/whats-new/posts/">New posts</a>
+                </nav>
+                <h1 class="p-title-value">T</h1>
+                <a href="/threads/t.1/watch" class="button">Watch</a>
+                <article class="message message--post" data-author="A">
+                  <div class="bbWrapper">x</div>
+                </article>
+              </body>
+            </html>
+        """.trimIndent()
+
+        val page = ThreadPostsParser.parse(html, "https://www.head-fi.org/threads/t.1/")
+
+        assertFalse(page.isWatching)
+        assertEquals("https://www.head-fi.org/threads/t.1/watch", page.watchUrl)
+    }
+
+    @Test
+    fun `detects an already watched thread`() {
+        val html = """
+            <html data-xf="2.3" data-template="thread_view">
+              <body>
+                <h1 class="p-title-value">T</h1>
+                <a href="/threads/t.1/watch" class="button button--link"
+                   data-xf-click="switch-overlay">Unwatch</a>
+                <article class="message message--post" data-author="A">
+                  <div class="bbWrapper">x</div>
+                </article>
+              </body>
+            </html>
+        """.trimIndent()
+
+        val page = ThreadPostsParser.parse(html, "https://www.head-fi.org/threads/t.1/")
+        assertTrue(page.isWatching)
+        assertEquals(
+            "https://www.head-fi.org/threads/t.1/watch",
+            page.unwatchUrl
+        )
+    }
+
+    @Test
+    fun `counts reactions from the summary text`() {
+        assertEquals(1, ReactionSummary.countFrom("You"))
+        assertEquals(2, ReactionSummary.countFrom("You and Bob"))
+        assertEquals(3, ReactionSummary.countFrom("You, Bob and Carol"))
+        assertEquals(4, ReactionSummary.countFrom("You and 3 others"))
+        assertEquals(3, ReactionSummary.countFrom("3 people"))
+        assertNull(ReactionSummary.countFrom(null))
+        assertNull(ReactionSummary.countFrom("  "))
+    }
+
+    @Test
     fun `unknown thumbnail dimensions are still treated as content images`() {
         val html = """
             <article class="message message--post" data-author="Bob">

@@ -84,12 +84,21 @@ fun ThreadListScreen(
                         onClick = { onOpenThread(thread) }
                     )
                 }
-                if (page.pageNav.hasPrevious || page.pageNav.hasNext) {
+                if (page.pageNav.hasPrevious || page.pageNav.hasNext ||
+                    page.pageNav.hasFirst || page.pageNav.hasLast
+                ) {
                     item {
                         PaginationRow(
                             label = "Page ${page.pageNav.currentPage} of ${page.pageNav.pageCount}",
+                            hasFirst = page.pageNav.hasFirst,
                             hasPrevious = page.pageNav.hasPrevious,
                             hasNext = page.pageNav.hasNext,
+                            hasLast = page.pageNav.hasLast,
+                            onFirst = {
+                                page.pageNav.firstUrl?.let {
+                                    onOpenDestination(NativeDestination.ThreadList(it, destination.title))
+                                }
+                            },
                             onPrevious = {
                                 page.pageNav.previousUrl?.let {
                                     onOpenDestination(NativeDestination.ThreadList(it, destination.title))
@@ -97,6 +106,11 @@ fun ThreadListScreen(
                             },
                             onNext = {
                                 page.pageNav.nextUrl?.let {
+                                    onOpenDestination(NativeDestination.ThreadList(it, destination.title))
+                                }
+                            },
+                            onLast = {
+                                page.pageNav.lastUrl?.let {
                                     onOpenDestination(NativeDestination.ThreadList(it, destination.title))
                                 }
                             }

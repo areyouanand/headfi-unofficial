@@ -35,14 +35,54 @@ data class ForumPost(
     val reactionId: Int? = null,
     val reactionLabel: String? = null,
     val hasReacted: Boolean = false,
+    /** Number of reactions on the post, parsed from the reactions bar. */
+    val reactionCount: Int? = null,
+    /** Exact posting time in epoch seconds (`data-time`), for a real date/time. */
+    val postedAtEpoch: Long? = null,
     /** Per-post reply link, normally `/threads/<slug>.<id>/reply?quote=<postId>`. */
     val quoteUrl: String? = null
 )
+
+/**
+ * Turns the reactions bar's summary text into a count.
+ *
+ * XenForo renders the viewers' names, not a number: "You", "You and Bob",
+ * "You, Bob and Carol", or "You and 3 others". Counting names also gives a
+ * sensible result for the collapsed form.
+ */
+internal object ReactionSummary {
+
+    fun countFrom(text: String?): Int? {
+        val value = text?.trim().orEmpty()
+        if (value.isEmpty()) return null
+
+        Regex("""(\d+)\s+(?:other|others|person|people)""", RegexOption.IGNORE_CASE)
+            .find(value)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+            ?.let { collapsed ->
+                val includesYou = value.contains("You", ignoreCase = false)
+                return collapsed + if (includesYou) 1 else 0
+            }
+
+        val names = value
+            .split(",", " and ")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        return names.size.coerceAtLeast(1)
+    }
+}
 
 data class ThreadPostsPage(
     val title: String?,
     val posts: List<ForumPost>,
     val pageNav: PageNav,
     /** CSRF token required to POST a reaction back to XenForo. */
-    val csrfToken: String? = null
+    val csrfToken: String? = null,
+    /** True when the viewer already watches this thread. */
+    val isWatching: Boolean = false,
+    val watchUrl: String? = null,
+    val unwatchUrl: String? = null
 )

@@ -1,6 +1,7 @@
 package org.headfi.app.net
 
 import android.content.Context
+import android.util.Log
 import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -145,18 +146,28 @@ class HeadFiContentClient(
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 val finalUrl = response.request.url.toString()
+                val challenge = XenForoMarkup.isChallengePage(text, finalUrl)
+                val login = XenForoMarkup.meta(text).isLoginPage
+                val errors = text.contains("\"errors\"")
+                val accepted = response.isSuccessful && !challenge && !login && !errors
 
-                response.isSuccessful &&
-                    !XenForoMarkup.isChallengePage(text, finalUrl) &&
-                    !XenForoMarkup.meta(text).isLoginPage &&
-                    !text.contains("\"errors\"")
+                // One line per action: the only way to diagnose a rejected POST on
+                // a device (see HANDOFF: no automated UI inspection on the target).
+                Log.i(
+                    TAG,
+                    "POST $url -> ${response.request.url.encodedPath} code=${response.code} " +
+                        "challenge=$challenge login=$login errors=$errors accepted=$accepted"
+                )
+                accepted
             }
         } catch (e: IOException) {
+            Log.w(TAG, "POST failed: ${e.message}")
             false
         }
     }
 
     private companion object {
+        const val TAG = "HeadFiReact"
         const val URL_FORUMS_INDEX = "https://www.head-fi.org/forums/"
         const val ACCEPT_HTML =
             "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"

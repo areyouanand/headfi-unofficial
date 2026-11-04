@@ -25,7 +25,7 @@ Grab the latest APK from the [**Releases**](https://github.com/areyouanand/headf
 
 ## ✨ Features
 
-- **Native forum & thread reading** — forums, thread lists, thread pages, What's New, watched threads, search results and alerts are fetched over HTTP with the WebView's own login and Cloudflare cookies, parsed with Jsoup, and rendered as Compose screens. Post bodies keep bold/italic/links/quotes/lists and inline images (via Coil, authenticated with the same cookies). Every post has **Like / Quote / Reply / Share** actions: Share uses the Android share sheet, Like posts the reaction over the same authenticated session (falling back to the browser if Head-Fi rejects it), and Quote/Reply open Head-Fi's editor with the quote prefilled. Home and forum views fall back to Head-Fi's public RSS feeds when the browser check has not been cleared yet, so the app is useful before the first challenge is solved. Attachments, Classifieds and Showcase still open in the browser view because they use XenForo's own editor. If a page ever looks wrong, turn it off under **Account & Settings → Reading & Layout → Native reader**.
+- **Native forum & thread reading** — forums, thread lists, thread pages, What's New, watched threads, search results and alerts are fetched over HTTP with the WebView's own login and Cloudflare cookies, parsed with Jsoup, and rendered as Compose screens. Post bodies keep bold/italic/links/quotes/lists and inline images (via Coil, authenticated with the same cookies), and every post shows its exact date and time plus its reaction count. Pagination has first / previous / next / last jumps, both on thread lists and inside threads. Every post has **Like / Quote / Reply / Share** actions: Share uses the Android share sheet, Like posts the reaction over the same authenticated session (falling back to the browser if Head-Fi rejects it), and Quote/Reply open Head-Fi's editor with the quote prefilled. Threads can be **watched** from the reader with the site's own choices — alerts only, or alerts plus email — and stopped again from the same dialog. Home and forum views fall back to Head-Fi's public RSS feeds when the browser check has not been cleared yet, so the app is useful before the first challenge is solved. Attachments, Classifieds and Showcase still open in the browser view because they use XenForo's own editor. If a page ever looks wrong, turn it off under **Account & Settings → Reading & Layout → Native reader**.
 - **Login that survives reboots** — dual-layer cookie persistence (native `CookieManager` SQLite flush + a DataStore vault that re-injects `xf_*`/`cf_*` cookies on cold boot). "Stay logged in" is auto-checked so the long-lived `xf_user` cookie is always issued.
 - **XenForo session bridge** — username, avatar, unread alerts and conversations show up natively in the top bar and account sheet.
 - **Material 3 Expressive shell** — a custom bottom bar on phones (equal-width slots, with a tab-style indicator on the active section), navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, find-in-page, search.
@@ -42,6 +42,18 @@ Grab the latest APK from the [**Releases**](https://github.com/areyouanand/headf
 - **Offline resilience** — losing your connection mid-session shows a Retry banner over the page you were reading rather than blanking it; the full-screen error is reserved for a failed first load. It reconnects by itself when the network returns.
 - **Monochrome adaptive icon** — vector Head-Fi headphone mark, works as an Android 13+ themed icon.
 
+## 🔒 Privacy
+
+**This app does not collect, store, or transmit any personal data, and it contains no analytics or tracking of any kind.**
+
+- **No analytics, telemetry, advertising, crash reporting, or Firebase.** There is no third-party SDK that reports on you.
+- **No account of its own.** The app has no backend and no user database; it only talks to Head-Fi.org (and its image CDN) using the session you create by signing in to the site.
+- **Everything stays on your device.** Preferences, the session-cookie backup and the last-read position are kept in the app's private storage. Uninstalling the app removes them.
+- **Ad/tracker blocking is local.** The blocklist simply refuses to load known third-party ad and tracking domains inside the WebView; nothing is logged or reported.
+- **No data is sold or shared**, because none is gathered in the first place.
+
+The full source is MIT-licensed, so you can verify all of this yourself.
+
 ## 🔧 Building it yourself
 
 Open the project in Android Studio (Ladybug or newer), or from the command line:
@@ -54,7 +66,7 @@ Open the project in Android Studio (Ladybug or newer), or from the command line:
 ### Versioning scheme
 
 - **Version name** comes from the git tag (`v1.2.3` → `1.2.3`), or defaults to `1.0.0`.
-- **Version code** is the total commit count, so it always increments.
+- **Version code** is the total commit count plus a fixed offset (currently 20), so it always increments and stays above locally built test APKs.
 - Override either manually: `./gradlew assembleRelease -PAPP_VERSION_NAME=1.2.3 -PAPP_VERSION_CODE=42`.
 
 ### About the committed signing key

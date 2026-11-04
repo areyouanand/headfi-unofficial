@@ -284,9 +284,7 @@ fun HeadFiAppScreen(
     // Predictive Back: close find-in-page, then step back through WebView
     // history, then leave the browser, then pop the native stack.
     BackHandler(
-        enabled = findInPageVisible ||
-            (webUrl != null && (canGoBack || nativeNavigator.canGoBack)) ||
-            (webUrl == null && nativeNavigator.canGoBack)
+        enabled = findInPageVisible || webUrl != null || nativeNavigator.canGoBack
     ) {
         when {
             findInPageVisible -> {
