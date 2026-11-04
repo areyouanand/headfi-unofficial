@@ -356,9 +356,9 @@ F:\AI stuff\HeadFi-Org\
 - Note: `gradlew` (the Unix shell script) must keep its executable bit — it was briefly committed as `100644`, which broke a Linux CI run, and was fixed in `ee3b4b0`. Windows builds are unaffected either way, so this is easy to regress by accident on a Windows checkout.
 
 ### Release & Versioning (v1.6.0)
-- **v1.6.0 is the first stable release with the native reader.** Tag `v1.6.0`; the workflow publishes it as the repo's **Latest release** (no hyphen in the tag, so `make_latest` is true).
+- **v1.6.0 was published to GitHub Releases on 2026-11-04** as the repo's **Latest release** (tag `v1.6.0`, asset `HeadFi-v1.6.0.apk`, versionCode **41**, run [41881210572](https://github.com/areyouanand/headfi-unofficial/actions/runs/41881210572)). It is the first stable release with the native reader; the three pre-releases stay on the releases page but are superseded.
+- A **`stable` branch** was created at the v1.6.0 commit. `main` continues to receive work; cherry-pick or fast-forward `stable` when releasing.
 - **Version codes are now commit count + 20.** The native reader was developed against a phone with locally side-loaded builds up to code 30, which would have outranked CI's commit-count codes. The offset in `release.yml` keeps published builds above those test installs; it must only ever increase.
-- The three pre-releases (`v1.6.0-beta`, `v1.6.0-beta.2`) stay on the releases page; `v1.6.0` supersedes them as the stable version.
 - v1.6.0 also adds first/last pagination, per-post date/time and reaction counts, inline post images, and native thread watching (alerts only / alerts + email / stop watching).
 
 ### Release & Versioning (v1.6.0-beta)
