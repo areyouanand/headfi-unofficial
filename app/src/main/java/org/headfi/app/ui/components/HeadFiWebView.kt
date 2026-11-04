@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import org.headfi.app.net.HeadFiUserAgent
 import org.headfi.app.util.DownloadAndShareHelper
 import org.headfi.app.webview.AdBlockEngine
 import org.headfi.app.webview.HeadFiJsBridge
@@ -69,11 +70,10 @@ fun HeadFiWebView(
     var pendingScrollRestore by remember { mutableStateOf<Int?>(null) }
 
     val context = LocalContext.current
-    val mobileUserAgent = remember {
-        WebSettings.getDefaultUserAgent(context)
-            .replace("; wv", "")
-            .replace(Regex("Version/\\d+\\.\\d+\\s*"), "")
-    }
+    // Captured once per process and shared with the native content client, so
+    // OkHttp replays `cf_clearance` with the exact UA the WebView solved the
+    // challenge with (Cloudflare binds the cookie to that fingerprint).
+    val mobileUserAgent = remember { HeadFiUserAgent.mobile(context) }
 
     // Re-apply CSS / JS enhancements whenever appearance settings toggle
     LaunchedEffect(enableDarkCss, amoledBlack, adBlockerEnabled) {
@@ -107,7 +107,7 @@ fun HeadFiWebView(
                 view.evaluateJavascript("window.scrollY") { raw ->
                     pendingScrollRestore = raw?.toDoubleOrNull()?.toInt()?.takeIf { it > 0 }
                     view.settings.userAgentString =
-                        if (desktopMode) DESKTOP_USER_AGENT else mobileUserAgent
+                        if (desktopMode) HeadFiUserAgent.DESKTOP else mobileUserAgent
                     view.reload()
                 }
             }
@@ -170,7 +170,7 @@ fun HeadFiWebView(
                     mediaPlaybackRequiresUserGesture = false
                     textZoom = textScale.toZoomPercent()
                     userAgentString = if (desktopMode) {
-                        DESKTOP_USER_AGENT
+                        HeadFiUserAgent.DESKTOP
                     } else {
                         mobileUserAgent
                     }
@@ -502,7 +502,3 @@ private fun isImageRequest(request: WebResourceRequest): Boolean {
 private val IMAGE_EXTENSIONS = listOf(
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".ico", ".avif"
 )
-
-private const val DESKTOP_USER_AGENT =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/131.0.0.0 Safari/537.36"

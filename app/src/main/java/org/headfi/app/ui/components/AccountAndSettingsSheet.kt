@@ -90,6 +90,7 @@ fun AccountAndSettingsSheet(
     onTextSizeChange: (TextSize) -> Unit,
     onBlockImagesChange: (Boolean) -> Unit,
     onSiteLayoutChange: (SiteLayout) -> Unit,
+    onNativeReaderChange: (Boolean) -> Unit,
     onBottomBarItemsChange: (List<BottomBarItem>) -> Unit,
     onCheckUnreadNowClick: () -> Unit
 ) {
@@ -653,6 +654,17 @@ fun AccountAndSettingsSheet(
                         subtitle = "Don't load images — useful on a metered connection",
                         checked = preferences.blockImages,
                         onCheckedChange = onBlockImagesChange
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    SettingToggleRow(
+                        icon = Icons.Outlined.Forum,
+                        title = "Native reader",
+                        subtitle = "Forums, threads and alerts open as app screens instead of " +
+                            "the website. Turn this off if a page ever looks wrong.",
+                        checked = preferences.nativeReaderEnabled,
+                        onCheckedChange = onNativeReaderChange
                     )
                 }
             }

@@ -16,6 +16,7 @@
 - **Background Work**: WorkManager (`2.10.1`) `CoroutineWorker` + `PeriodicWorkRequest` for background unread polling; `lifecycle-process` (`ProcessLifecycleOwner`) for foreground detection
 - **Pull to Refresh**: `androidx.swiperefreshlayout:swiperefreshlayout:1.1.0`
 - **Web Engine**: AndroidX WebKit (`1.12.1`) + Chrome Custom Tabs (`androidx.browser:1.8.0`)
+- **Native content layer**: OkHttp `4.12.0` + Jsoup `1.18.3` for fetching/parsing Head-Fi HTML and RSS, Coil `2.7.0` for authenticated images (all sharing the WebView's cookie jar and User-Agent)
 
 ---
 
@@ -100,6 +101,74 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
 - **Opt-in UI**: `AccountAndSettingsSheet.kt` exposes the toggle plus frequency chips (15 min / 30 min / hourly / 3 hours — WorkManager enforces a 15 minute floor). A **Check now** button runs one poll immediately (`UnreadPollScheduler.checkNow`, unique one-time work with `manual=true` input).
 - **Foreground suppression:** `UnreadPollWorker` checks `ProcessLifecycleOwner` and skips posting notifications while the app is on screen. `lastNotified` is left unchanged, so anything still unread is announced once the app is backgrounded. Manual checks always notify.
 
+### F. Native Content Layer (forums, threads, alerts)
+The app still ships a WebView, but reading no longer depends on it. Forums, thread
+lists, thread pages, What's New, watched threads, search results and alerts are
+fetched over HTTP and rendered as Compose screens.
+
+- **Why the WebView cannot be removed.** Head-Fi sits behind Cloudflare Turnstile.
+  A request without `cf_clearance` is answered with **`200 OK` and the
+  `hfbot_challenge_widget` template** — a challenge page, not content, and not an
+  error status. Only a real browser engine earns that cookie, so the WebView is
+  kept as the sign-in/challenge mint. Everything else runs natively.
+- **The full XenForo REST API is unavailable.** `https://www.head-fi.org/api/`
+  answers `400 {"code":"no_api_key_in_request"}`; only a site admin can issue a
+  key. Native content therefore comes from parsing server-rendered HTML with
+  Jsoup, which is why every parser is defensive and falls back to the WebView.
+- **Cookie bridge (`net/WebViewCookieJar.kt`)** — OkHttp reads and writes the
+  same `CookieManager` the WebView uses. `xf_user`/`xf_session`/`cf_clearance`
+  therefore apply to native requests with no second login. On cold boot, when the
+  cookie database may have been trimmed, `HeadFiContentClient` falls back to the
+  existing DataStore vault (`SessionPreferencesRepository.cookieHeader()`).
+- **User-Agent must match (`net/HeadFiUserAgent.kt`)** — Cloudflare binds
+  `cf_clearance` to the UA that solved the challenge. `HeadFiWebView`,
+  `HeadFiContentClient`, `UnreadPollWorker` and Coil now all send the *same*
+  captured string; `HeadFiApplication.onCreate` prefetches it on the main thread
+  so a worker in a cold process does not fall back to a different UA.
+- **RSS bypasses the challenge (verified live)** — `.../index.rss` feeds answer
+  `200` with real XML even with no clearance cookie: `/forums/-/index.rss`
+  (board-wide) and `/forums/<slug>.<id>/index.rss` (per forum) were both fetched
+  successfully during this work. `RssThreadListParser` + `ContentRepository.rssFallback`
+  therefore fill Home and forum views with their newest threads *before* the user
+  has ever passed the challenge. Those results carry `ThreadListPage.isPartial`
+  and the UI shows "Showing the latest threads · Verify", because a feed has no
+  stickies and no pagination. (What's New's RSS variant is throttled by Head-Fi,
+  so it has no fallback.)
+- **Challenge detection is mandatory (`net/xenforo/XenForoMarkup.kt`)** — every
+  fetch is classified before a parser sees it. `PagePayload.NeedsVerification`
+  renders "Verify this session" with a button into the WebView, so an expired
+  clearance cookie can never look like an empty forum.
+- **Parsers (`net/xenforo/`)** — `ForumsIndexParser`, `ThreadListParser` (forum
+  view / What's New / watched / search all share `.structItem--thread`),
+  `ThreadPostsParser`, `PostBodyParser` (walks `.bbWrapper` into paragraphs,
+  quotes, list items and images, with character-range spans for bold/italic/
+  links/code) and `AlertsParser`. They throw `XenForoParseException` instead of
+  returning empty data; `ContentRepository` turns that into an error state with
+  an "Open in browser" action.
+- **Navigation (`ui/native/NativeNavigation.kt`)** — `NativeDestination` covers
+  Home, Forums, ThreadList, Thread and Alerts, with its own back/forward stack so
+  the bottom bar behaves the same in both modes. `nativeDestinationFor(url)`
+  decides native vs. WebView; reply/edit/form URLs are deliberately excluded.
+- **Screens (`ui/native/`)** — native Home hub (unread counts, quick actions,
+  latest activity), Forums, ThreadList with pager, Thread reader (avatars, post
+  metadata, quotes, inline images via Coil with the same cookies, "Reply in
+  browser") and Alerts. Headers scroll with the content: the app still has no
+  pinned app bar.
+- **Escape hatch** — *Account & Settings → Reading & Layout → Native reader*.
+  Turning it off keeps the user on the same URL but renders it in the WebView,
+  and the setting persists. It exists because markup drift is the one real risk
+  of a parser-based reader.
+- **Debug probe** — debug builds `GET /forums/` once at startup and log a
+  one-line classification + parse summary under the `HeadFiContent` logcat tag.
+  Useful on a device where automated UI inspection is unavailable; never runs in
+  release.
+- **Verified in this workstation**: `testDebugUnitTest` (24 JVM tests covering
+  challenge detection, forum index, thread list, thread posts/formatting, alerts
+  and the RSS fallback) and `assembleDebug`/`assembleRelease` with R8. **Not
+  verified on a device** — no phone was attached during this work, so live markup
+  against the real site is still unconfirmed (the live RSS endpoints were checked
+  over HTTP and do return the parsed shape).
+
 ---
 
 ## 4. File Map
@@ -117,13 +186,29 @@ F:\AI stuff\HeadFi-Org\
 └── app/
     ├── build.gradle.kts
     ├── proguard-rules.pro
-    └── src/main/
+    ├── src/main/
         ├── AndroidManifest.xml
         ├── java/org/headfi/app/
         │   ├── HeadFiApplication.kt
         │   ├── MainActivity.kt
         │   ├── data/
+        │   │   ├── ContentRepository.kt   # fetch + parse + short cache for native screens
         │   │   └── SessionPreferencesRepository.kt
+        │   ├── net/
+        │   │   ├── HeadFiContentClient.kt  # OkHttp fetch, classified into PagePayload
+        │   │   ├── HeadFiHttpClient.kt     # shared OkHttp client + disk cache
+        │   │   ├── HeadFiUserAgent.kt      # one UA for WebView, OkHttp, Coil, worker
+        │   │   ├── PagePayload.kt          # Html / NeedsVerification / Unavailable
+        │   │   ├── WebViewCookieJar.kt     # OkHttp <-> CookieManager bridge
+        │   │   └── xenforo/
+        │   │       ├── Alerts.kt / AlertsParser.kt
+        │   │       ├── ForumsIndex.kt / ForumsIndexParser.kt
+        │   │       ├── PostBodyParser.kt   # bbWrapper -> paragraphs/quotes/images/spans
+        │   │       ├── RssThreadListParser.kt  # public feeds: works pre-clearance
+        │   │       ├── ThreadList.kt / ThreadListParser.kt
+        │   │       ├── ThreadPosts.kt / ThreadPostsParser.kt
+        │   │       ├── XenForoMarkup.kt    # challenge/login detection
+        │   │       └── XenForoUrls.kt      # URL -> id helpers + pager
         │   ├── model/
         │   │   ├── BottomBarItem.kt        # bottom bar options, defaults, sign-in-only items, 4-item cap
 │   │   ├── HeadFiSection.kt        # 5 nav destinations + QuickDestination (member URLs)
@@ -136,6 +221,15 @@ F:\AI stuff\HeadFi-Org\
         │   │   │   ├── HeadFiMonochromeLogoIcon.kt
         │   │   │   ├── HeadFiWebView.kt
         │   │   │   └── SearchHeadFiDialog.kt
+        │   │   ├── native/
+        │   │   │   ├── AlertsScreen.kt
+        │   │   │   ├── ForumsScreen.kt
+        │   │   │   ├── HomeScreen.kt
+        │   │   │   ├── NativeCommon.kt     # Loadable state, header, rows, avatar
+        │   │   │   ├── NativeContentHost.kt
+        │   │   │   ├── NativeNavigation.kt # destinations + back/forward stack
+        │   │   │   ├── ThreadListScreen.kt
+        │   │   │   └── ThreadScreen.kt
         │   │   └── theme/
         │   │       └── Theme.kt
         │   ├── util/
@@ -164,6 +258,21 @@ F:\AI stuff\HeadFi-Org\
                 ├── backup_rules.xml
                 ├── data_extraction_rules.xml
                 └── file_paths.xml
+    └── src/test/                          # JVM-only; parsers take raw HTML
+        ├── java/org/headfi/app/net/xenforo/
+        │   ├── AlertsParserTest.kt
+        │   ├── ForumsIndexParserTest.kt
+        │   ├── RssThreadListParserTest.kt
+        │   ├── ThreadListParserTest.kt
+        │   ├── ThreadPostsParserTest.kt
+        │   └── XenForoMarkupTest.kt
+        └── resources/fixtures/
+            ├── alerts.html
+            ├── challenge.html
+            ├── forums_index.html
+            ├── rss_threads.xml
+            ├── thread_list.html
+            └── thread_posts.html
 ```
 
 ---
@@ -178,7 +287,7 @@ F:\AI stuff\HeadFi-Org\
 - User-scope environment variables were written (`JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, plus `java`/`platform-tools`/`cmdline-tools` on `Path`), so new terminals resolve them automatically. They are **not** inherited by already-running processes.
 - `.\gradlew.bat assembleDebug assembleRelease` **passes** as of v1.5.0: both APKs build, the release APK keeps `UnreadPollWorker` unobfuscated (verified in `mapping.txt` and in `classes.dex`), and the merged manifest contains `WorkManagerInitializer`, `POST_NOTIFICATIONS`, and the `FileProvider` authority.
 - **The app is running on a real device, and that has already paid off twice.** Two regressions shipped in v1.3.0 and were reported from actual use, not from a test run: images not loading anywhere (Data Saver keyed off the ad-blocker flag instead of `loadImages`), and "hide the site header" leaving Head-Fi's second logo in the sticky nav visible. Both are fixed in v1.3.1 — see section D.
-- **Device: OPPO CPH2841, Android 16 (SDK 36).** A physical phone is attached over adb; no emulator is installed.
+- **Device: OPPO CPH2841, Android 16 (SDK 36).** A physical phone was attached over adb for the v1.5.0 verification pass. It was **not attached** while the native content layer (section F) was built, so that work is compile- and test-verified only.
 - **Images are now confirmed loading on-device.** Verified by inspecting the WebView HTTP cache of a fresh debug install of the fixed build (`adb shell run-as org.headfi.app.debug` — see the caveat below on why `run-as` is the useful trick here). The cache held four image responses from `cdn.head-fi.org` totalling ~500 KB: `HF_SponsorFlag_01a_Daylight.png` (308 KB), `Head-Fi_Featured_Image_01b_Daylight.jpg` (118 KB), `Head-Fi_Favicon_01b.png` (36 KB) and `HFXT_Head-Fi_Logo_800x170.png` (35 KB). Under the v1.3.0 bug every image request returned an empty response, so none of these could exist. **This is the technique to reach for when you cannot see the screen**: dump the cache keys with `head -c 400 <entry> | strings | grep -i http`, which prints the URL Chromium stored for each entry.
 - **Automated UI inspection is not available on this device.** Do not plan on it:
   - `uiautomator dump` fails with `ERROR: null root node returned by UiTestAutomationBridge` on every attempt. OPPO blocks it.
@@ -189,6 +298,7 @@ F:\AI stuff\HeadFi-Org\
 - **Open risk — Cloudflare Turnstile does not auto-clear on a fresh profile.** A clean install lands on `/bot/challenge` and stays there; tapping the widget at several coordinates and waiting did not complete it. The user's own install carries a `cf_clearance` cookie so it passes, but if that cookie ever expires or app data is cleared, the app will sit on the challenge with no obvious way past it. This is untriaged and is the most likely next user-visible complaint.
 - **Verified on device (v1.5.0 release, via screenshots):** the bottom bar layout, labels and tab indicator.
 - **Still compile-verified only:** bottom bar customisation, ordering and persistence; the reconnect callback; the Turnstile challenge watcher; Check now; scroll restore on layout switch; foreground suppression; find-in-page; the offline banner; camera capture; and the live application of text zoom and Data Saver. The header hiding toggle is gone, so there is nothing left to verify there.
+- **Native content layer (section F) — verified how?** `.\gradlew.bat testDebugUnitTest` runs 20 JVM tests against captured-shape XenForo fixtures, and `assembleDebug`/`assembleRelease` both pass with R8 (confirmed the parsers, `ContentRepository`, `HeadFiContentClient` and the native screens survive shrinking in `mapping.txt`). What remains unverified is the real thing: whether Head-Fi's live markup matches those selectors, and whether `cf_clearance` obtained by the WebView is accepted by OkHttp. Run the debug build on a device and watch `adb logcat -s HeadFiContent` — it logs whether `/forums/` came back as HTML (with category/forum counts) or as a challenge page. If it is a challenge page even after opening the site in the browser view, the UA/cookie bridge is the first suspect.
 - Note: `gradlew` (the Unix shell script) must keep its executable bit — it was briefly committed as `100644`, which broke a Linux CI run, and was fixed in `ee3b4b0`. Windows builds are unaffected either way, so this is easy to regress by accident on a Windows checkout.
 
 ### Release & Versioning (v1.5.0)

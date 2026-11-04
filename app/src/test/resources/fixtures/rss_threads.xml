@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"
+     xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:dc="http://purl.org/dc/elements/1.1/"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/">
+    <channel>
+        <title>Headphones (full-size)</title>
+        <link>https://www.head-fi.org/forums/headphones-full-size.4/</link>
+        <description>Head-Fi forum feed</description>
+        <item>
+            <title>AUNE AR3000 Impressions and Discussion thread</title>
+            <pubDate>Wed, 04 Nov 2026 12:57:16 +0000</pubDate>
+            <link>https://www.head-fi.org/threads/aune-ar3000-impressions-and-discussion-thread.981816/</link>
+            <guid isPermaLink="false">urn:xenforo:thread:981816</guid>
+            <author>invalid@example.com (Currawong)</author>
+            <category domain="https://www.head-fi.org/forums/headphones-full-size.4/"><![CDATA[Headphones (full-size)]]></category>
+            <dc:creator>Currawong</dc:creator>
+            <content:encoded><![CDATA[<div class="bbWrapper">A dedicated thread for impressions.</div>]]></content:encoded>
+        </item>
+        <item>
+            <title>Best closed-back under 500</title>
+            <pubDate>Tue, 03 Nov 2026 08:12:00 +0000</pubDate>
+            <link>https://www.head-fi.org/threads/best-closed-back-under-500.981700/</link>
+            <guid isPermaLink="false">urn:xenforo:thread:981700</guid>
+            <author>invalid@example.com (Alice)</author>
+            <category domain="https://www.head-fi.org/forums/headphones-full-size.4/"><![CDATA[Headphones (full-size)]]></category>
+            <dc:creator>Alice</dc:creator>
+        </item>
+    </channel>
+</rss>

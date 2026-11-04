@@ -8,6 +8,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.flow.first
 import org.headfi.app.data.SessionPreferencesRepository
+import org.headfi.app.net.HeadFiUserAgent
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -33,10 +34,6 @@ class UnreadPollWorker(
 
         /** Enough to cover `XF.config`, which lives in the document head. */
         private const val MAX_HTML_CHARS = 400_000
-
-        private const val USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/131.0.0.0 Mobile Safari/537.36"
     }
 
     /**
@@ -134,7 +131,7 @@ class UnreadPollWorker(
             readTimeout = 20_000
             instanceFollowRedirects = true
             setRequestProperty("Cookie", cookieHeader)
-            setRequestProperty("User-Agent", USER_AGENT)
+            setRequestProperty("User-Agent", HeadFiUserAgent.mobile(applicationContext))
             setRequestProperty("Accept", "text/html,application/xhtml+xml")
         }
 

@@ -97,6 +97,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -113,6 +114,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
+import org.headfi.app.data.ContentRepository
 import org.headfi.app.model.BottomBarItem
 import org.headfi.app.model.HeadFiSection
 import org.headfi.app.model.QuickDestination
@@ -122,6 +124,10 @@ import org.headfi.app.model.UserSessionState
 import org.headfi.app.ui.components.AccountAndSettingsSheet
 import org.headfi.app.ui.components.HeadFiWebView
 import org.headfi.app.ui.components.SearchHeadFiDialog
+import org.headfi.app.ui.native.NativeContentHost
+import org.headfi.app.ui.native.NativeDestination
+import org.headfi.app.ui.native.NativeNavigator
+import org.headfi.app.ui.native.nativeDestinationFor
 import org.headfi.app.util.DownloadAndShareHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -150,6 +156,37 @@ fun HeadFiAppScreen(
     var showSearchDialog by remember { mutableStateOf(false) }
     var longPressedImageUrl by remember { mutableStateOf<String?>(null) }
 
+    // Where the app opens: a deep link, the last page, or the home page.
+    val startUrl = remember {
+        if (!deepLinkUrl.isNullOrBlank()) {
+            deepLinkUrl
+        } else if (preferences.rememberLastPage && preferences.lastVisitedUrl.isNotBlank()) {
+            preferences.lastVisitedUrl
+        } else {
+            HeadFiSection.HOME.url
+        }
+    }
+
+    val contentRepository = remember { ContentRepository(context) }
+    val nativeNavigator = remember {
+        NativeNavigator(nativeDestinationFor(startUrl) ?: NativeDestination.Home())
+    }
+
+    // null => native screens are showing; non-null => the WebView is showing
+    // that URL. The WebView is still the fallback for sign-in, Cloudflare
+    // challenges, replies, Classifieds and Showcase.
+    var webUrl by remember {
+        mutableStateOf(
+            when {
+                !preferences.nativeReaderEnabled -> startUrl
+                nativeDestinationFor(startUrl) == null -> startUrl
+                else -> null
+            }
+        )
+    }
+    var webRequestId by remember { mutableIntStateOf(0) }
+    var nativeRefreshToken by remember { mutableIntStateOf(0) }
+
     // Find-in-page state
     var findInPageVisible by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
@@ -166,26 +203,103 @@ fun HeadFiAppScreen(
         ThemeMode.DARK -> true
     }
 
-    // Handle incoming deep link intents
-    LaunchedEffect(deepLinkUrl, webViewRef) {
+    // Handle incoming deep link intents: native when the URL is supported, the
+    // WebView otherwise.
+    LaunchedEffect(deepLinkUrl) {
         val target = deepLinkUrl
-        val wv = webViewRef
-        if (!target.isNullOrBlank() && wv != null) {
-            wv.loadUrl(target)
+        if (!target.isNullOrBlank()) {
+            val destination = if (preferences.nativeReaderEnabled) {
+                nativeDestinationFor(target)
+            } else {
+                null
+            }
+            if (destination != null) {
+                nativeNavigator.reset(destination)
+                webUrl = null
+            } else {
+                webUrl = target
+                webRequestId++
+            }
             onConsumeDeepLink()
         }
     }
 
-    // Predictive Back Gesture handling for WebView history
-    BackHandler(enabled = canGoBack || findInPageVisible) {
-        if (findInPageVisible) {
-            webViewRef?.clearMatches()
+    // Toggling the native reader moves the current page between the native
+    // screen and the WebView instead of stranding the user on a stale screen.
+    var previousNativeReader by remember { mutableStateOf(preferences.nativeReaderEnabled) }
+    LaunchedEffect(preferences.nativeReaderEnabled) {
+        if (preferences.nativeReaderEnabled == previousNativeReader) return@LaunchedEffect
+        previousNativeReader = preferences.nativeReaderEnabled
+
+        val target = webUrl ?: nativeNavigator.current.url
+        if (preferences.nativeReaderEnabled) {
+            nativeNavigator.reset(nativeDestinationFor(target) ?: NativeDestination.Home())
+            webUrl = null
+        } else {
+            webUrl = target
+            webRequestId++
+        }
+    }
+
+    val activeUrl = webUrl ?: nativeNavigator.current.url
+    val activeSection = if (webUrl != null) selectedSection else HeadFiSection.fromUrl(activeUrl)
+    val findAvailable = webUrl != null
+    val effectiveCanGoBack = if (webUrl != null) canGoBack else nativeNavigator.canGoBack
+    val effectiveCanGoForward = if (webUrl != null) canGoForward else nativeNavigator.canGoForward
+
+    val openUrl: (String) -> Unit = { url ->
+        val destination = if (preferences.nativeReaderEnabled) {
+            nativeDestinationFor(url)
+        } else {
+            null
+        }
+        if (destination != null) {
+            nativeNavigator.open(destination)
+            webUrl = null
+        } else {
+            webUrl = url
+            webRequestId++
+        }
+    }
+
+    // Keep "remember last page" meaningful for native screens too: the WebView
+    // reports its own URLs, but native navigation never touches it.
+    LaunchedEffect(webUrl, nativeNavigator.current) {
+        if (webUrl == null) {
+            viewModel.onUrlChanged(nativeNavigator.current.url)
+        }
+    }
+
+    // Leaving the browser clears find-in-page state, so re-entering it later
+    // does not resurrect an old query.
+    LaunchedEffect(webUrl) {
+        if (webUrl == null) {
             findInPageVisible = false
             findQuery = ""
             findMatchCount = 0
             findActiveMatch = -1
-        } else {
-            webViewRef?.goBack()
+        }
+    }
+
+    // Predictive Back: close find-in-page, then step back through WebView
+    // history, then leave the browser, then pop the native stack.
+    BackHandler(
+        enabled = findInPageVisible ||
+            (webUrl != null && (canGoBack || nativeNavigator.canGoBack)) ||
+            (webUrl == null && nativeNavigator.canGoBack)
+    ) {
+        when {
+            findInPageVisible -> {
+                webViewRef?.clearMatches()
+                findInPageVisible = false
+                findQuery = ""
+                findMatchCount = 0
+                findActiveMatch = -1
+            }
+
+            webUrl != null && canGoBack -> webViewRef?.goBack()
+            webUrl != null -> webUrl = null
+            else -> nativeNavigator.back()
         }
     }
 
@@ -274,49 +388,56 @@ fun HeadFiAppScreen(
         }
     }
 
-    val startUrl = remember {
-        if (!deepLinkUrl.isNullOrBlank()) {
-            deepLinkUrl
-        } else if (preferences.rememberLastPage && preferences.lastVisitedUrl.isNotBlank()) {
-            preferences.lastVisitedUrl
-        } else {
-            HeadFiSection.HOME.url
-        }
-    }
-
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useNavigationRail = maxWidth >= 600.dp
         val visibleBarItems = preferences.bottomBarItems.filter { it.isVisibleTo(sessionState.isSignedIn) }
 
         val onSectionClick: (HeadFiSection) -> Unit = { section ->
-            if (selectedSection == section) {
+            val destination = nativeDestinationFor(section.url)
+            if (preferences.nativeReaderEnabled && destination != null) {
+                if (webUrl == null && nativeNavigator.current == destination) {
+                    // Tapping the active tab refreshes it.
+                    nativeRefreshToken++
+                } else {
+                    nativeNavigator.reset(destination)
+                    webUrl = null
+                }
+            } else if (webUrl != null && activeSection == section) {
                 // Tapping the active tab scrolls smoothly to top or reloads section root
                 webViewRef?.evaluateJavascript(
                     "if (window.scrollY > 120) { window.scrollTo({top: 0, behavior: 'smooth'}); } else { window.location.href = '${section.url}'; }",
                     null
                 )
             } else {
-                webViewRef?.loadUrl(section.url)
+                openUrl(section.url)
             }
         }
 
         val onBarItemClick: (BottomBarItem) -> Unit = { item ->
             when (item) {
-                BottomBarItem.BACK -> webViewRef?.goBack()
-                BottomBarItem.FORWARD -> webViewRef?.goForward()
-                BottomBarItem.REFRESH -> webViewRef?.reload()
+                BottomBarItem.BACK ->
+                    if (webUrl != null) webViewRef?.goBack() else nativeNavigator.back()
+
+                BottomBarItem.FORWARD ->
+                    if (webUrl != null) webViewRef?.goForward() else nativeNavigator.forward()
+
+                BottomBarItem.REFRESH ->
+                    if (webUrl != null) webViewRef?.reload() else nativeRefreshToken++
+
                 BottomBarItem.SEARCH -> showSearchDialog = true
-                BottomBarItem.FIND_IN_PAGE -> findInPageVisible = true
-                BottomBarItem.WATCHED_THREADS -> webViewRef?.loadUrl(QuickDestination.WATCHED_THREADS.url)
-                BottomBarItem.CONVERSATIONS -> webViewRef?.loadUrl(QuickDestination.CONVERSATIONS.url)
-                BottomBarItem.BOOKMARKS -> webViewRef?.loadUrl(QuickDestination.BOOKMARKS.url)
-                BottomBarItem.ALERTS -> webViewRef?.loadUrl(QuickDestination.ALERTS.url)
+
+                BottomBarItem.FIND_IN_PAGE -> if (webUrl != null) findInPageVisible = true
+
+                BottomBarItem.WATCHED_THREADS -> openUrl(QuickDestination.WATCHED_THREADS.url)
+                BottomBarItem.CONVERSATIONS -> openUrl(QuickDestination.CONVERSATIONS.url)
+                BottomBarItem.BOOKMARKS -> openUrl(QuickDestination.BOOKMARKS.url)
+                BottomBarItem.ALERTS -> openUrl(QuickDestination.ALERTS.url)
                 BottomBarItem.SHARE -> DownloadAndShareHelper.sharePage(
                     context = context,
                     title = pageTitle,
-                    url = currentUrl
+                    url = activeUrl
                 )
-                BottomBarItem.OPEN_EXTERNAL -> DownloadAndShareHelper.openInCustomTab(context, currentUrl)
+                BottomBarItem.OPEN_EXTERNAL -> DownloadAndShareHelper.openInCustomTab(context, activeUrl)
                 else -> item.section?.let(onSectionClick)
             }
         }
@@ -330,8 +451,35 @@ fun HeadFiAppScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
+                if (webUrl == null) {
+                    NativeContentHost(
+                        navigator = nativeNavigator,
+                        repository = contentRepository,
+                        refreshToken = nativeRefreshToken,
+                        textScale = preferences.textSize.scale,
+                        loadImages = !preferences.blockImages,
+                        session = sessionState,
+                        onRefresh = {
+                            contentRepository.invalidateAll()
+                            nativeRefreshToken++
+                        },
+                        onOpenWeb = { url ->
+                            webUrl = url
+                            webRequestId++
+                        },
+                        onOpenExternal = { url ->
+                            DownloadAndShareHelper.openInCustomTab(context, url)
+                        }
+                    )
+                } else {
+                LaunchedEffect(webUrl, webRequestId) {
+                    // The factory performs the first load; later requests
+                    // (deep links, "open in browser") drive the live WebView.
+                    webUrl?.let { webViewRef?.loadUrl(it) }
+                }
+
                 HeadFiWebView(
-                    initialUrl = startUrl,
+                    initialUrl = webUrl ?: startUrl,
                     enableDarkCss = isDarkActive && preferences.injectWebDarkTheme,
                     amoledBlack = preferences.amoledBlack,
                     adBlockerEnabled = preferences.adBlockerEnabled,
@@ -429,9 +577,7 @@ fun HeadFiAppScreen(
                                 )
                             }
                             TextButton(
-                                onClick = {
-                                    webViewRef?.loadUrl("https://www.head-fi.org/login/")
-                                }
+                                onClick = { openUrl("https://www.head-fi.org/login/") }
                             ) {
                                 Text("Sign in")
                             }
@@ -561,6 +707,7 @@ fun HeadFiAppScreen(
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
                 }
+                }
             }
         }
         }
@@ -576,11 +723,11 @@ fun HeadFiAppScreen(
                 ) {
                     NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                         visibleBarItems.forEach { item ->
-                            val selected = item.section == selectedSection
+                            val selected = item.section == activeSection
                             NavigationRailItem(
                                 selected = selected,
                                 onClick = { onBarItemClick(item) },
-                                enabled = isBarItemEnabled(item, canGoBack, canGoForward),
+                                enabled = isBarItemEnabled(item, effectiveCanGoBack, effectiveCanGoForward, findAvailable),
                                 icon = {
                                     BottomBarItemIcon(
                                         item = item,
@@ -646,11 +793,11 @@ fun HeadFiAppScreen(
                 ) {
                     HeadFiBottomBar {
                         visibleBarItems.forEach { item ->
-                            val selected = item.section == selectedSection
+                            val selected = item.section == activeSection
                             BottomBarSlot(
                                 label = item.shortLabel,
                                 selected = selected,
-                                enabled = isBarItemEnabled(item, canGoBack, canGoForward),
+                                enabled = isBarItemEnabled(item, effectiveCanGoBack, effectiveCanGoForward, findAvailable),
                                 onClick = { onBarItemClick(item) },
                                 icon = {
                                     BottomBarItemIcon(
@@ -697,13 +844,14 @@ fun HeadFiAppScreen(
             sessionState = sessionState,
             preferences = preferences,
             onDismiss = { showAccountSheet = false },
-            onNavigateUrl = { url -> webViewRef?.loadUrl(url) },
+            onNavigateUrl = { url -> openUrl(url) },
             onLoginClick = {
-                webViewRef?.loadUrl("https://www.head-fi.org/login/")
+                openUrl("https://www.head-fi.org/login/")
             },
             onLogoutClick = {
                 viewModel.logoutAndClearSession {
-                    webViewRef?.loadUrl("https://www.head-fi.org/")
+                    nativeNavigator.reset(NativeDestination.Home())
+                    webUrl = null
                 }
             },
             onThemeModeChange = viewModel::setThemeMode,
@@ -717,6 +865,7 @@ fun HeadFiAppScreen(
             onBlockImagesChange = viewModel::setBlockImages,
             onSiteLayoutChange = viewModel::setSiteLayout,
             onBottomBarItemsChange = viewModel::setBottomBarItems,
+            onNativeReaderChange = viewModel::setNativeReaderEnabled,
             onCheckUnreadNowClick = {
                 viewModel.checkUnreadNow()
                 Toast.makeText(context, "Checking Head-Fi for new activity…", Toast.LENGTH_SHORT).show()
@@ -729,7 +878,7 @@ fun HeadFiAppScreen(
         SearchHeadFiDialog(
             onDismiss = { showSearchDialog = false },
             onExecuteSearchUrl = { searchUrl ->
-                webViewRef?.loadUrl(searchUrl)
+                openUrl(searchUrl)
             }
         )
     }
@@ -1002,10 +1151,16 @@ private fun RowScope.BottomBarSlot(
     }
 }
 
-private fun isBarItemEnabled(item: BottomBarItem, canGoBack: Boolean, canGoForward: Boolean): Boolean =
+private fun isBarItemEnabled(
+    item: BottomBarItem,
+    canGoBack: Boolean,
+    canGoForward: Boolean,
+    findAvailable: Boolean
+): Boolean =
     when (item) {
         BottomBarItem.BACK -> canGoBack
         BottomBarItem.FORWARD -> canGoForward
+        BottomBarItem.FIND_IN_PAGE -> findAvailable
         else -> true
     }
 

@@ -79,5 +79,11 @@ data class AppPreferences(
     val blockImages: Boolean = false,
     val siteLayout: SiteLayout = SiteLayout.MOBILE,
     val bottomBarItems: List<BottomBarItem> = BottomBarItem.DEFAULT,
-    val signInPromptDismissed: Boolean = false
+    val signInPromptDismissed: Boolean = false,
+    /**
+     * Render forums, threads and alerts as native Compose screens. Turning this
+     * off falls back to the WebView, which is the safety net if Head-Fi changes
+     * its markup.
+     */
+    val nativeReaderEnabled: Boolean = true
 )

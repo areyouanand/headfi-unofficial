@@ -33,6 +33,9 @@ jobs:
           fi
           echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
       - name: Build release APK
         run: >
           ./gradlew assembleRelease --no-daemon
@@ -49,9 +52,15 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.name }}
           files: HeadFi-*.apk
-          make_latest: true
+          # Tags with a hyphen are pre-releases (e.g. v1.6.0-beta): they should
+          # not become the repo's "Latest release", which stays on the last stable
+          # vX.Y.Z until a stable tag is pushed.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           body: |
             **Head-Fi for Android (Unofficial) v${{ steps.version.outputs.name }}**
+
+            ${{ contains(github.ref_name, '-') && '> **Beta build.** The native reader is a preview: forums, threads and alerts render as app screens instead of the website. If anything looks wrong, switch it off under Account & Settings → Reading & Layout → Native reader and the app behaves like the previous release.' || '' }}
 
             ⚠️ **Unofficial app, built for personal convenience.** This project is
             not affiliated with, endorsed by, or connected to Head-Fi.org in any

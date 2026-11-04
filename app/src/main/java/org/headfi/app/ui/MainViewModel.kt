@@ -208,6 +208,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.setSiteLayout(layout) }
     }
 
+    fun setNativeReaderEnabled(enabled: Boolean) {
+        viewModelScope.launch { repository.setNativeReaderEnabled(enabled) }
+    }
+
     fun setBottomBarItems(items: List<BottomBarItem>) {
         viewModelScope.launch { repository.setBottomBarItems(items) }
     }

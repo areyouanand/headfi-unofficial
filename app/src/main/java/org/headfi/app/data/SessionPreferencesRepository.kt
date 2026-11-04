@@ -44,6 +44,7 @@ class SessionPreferencesRepository(private val context: Context) {
         val SITE_LAYOUT = stringPreferencesKey("site_layout")
         val BOTTOM_BAR_ITEMS = stringPreferencesKey("bottom_bar_items")
         val SIGN_IN_PROMPT_DISMISSED = booleanPreferencesKey("sign_in_prompt_dismissed")
+        val NATIVE_READER = booleanPreferencesKey("native_reader")
         val LAST_NOTIFIED_ALERTS = intPreferencesKey("last_notified_alerts")
         val LAST_NOTIFIED_CONVERSATIONS = intPreferencesKey("last_notified_conversations")
     }
@@ -65,7 +66,8 @@ class SessionPreferencesRepository(private val context: Context) {
             blockImages = prefs[Keys.BLOCK_IMAGES] ?: false,
             siteLayout = SiteLayout.fromName(prefs[Keys.SITE_LAYOUT]),
             bottomBarItems = BottomBarItem.fromNames(prefs[Keys.BOTTOM_BAR_ITEMS]),
-            signInPromptDismissed = prefs[Keys.SIGN_IN_PROMPT_DISMISSED] ?: false
+            signInPromptDismissed = prefs[Keys.SIGN_IN_PROMPT_DISMISSED] ?: false,
+            nativeReaderEnabled = prefs[Keys.NATIVE_READER] ?: true
         )
     }
 
@@ -118,6 +120,10 @@ class SessionPreferencesRepository(private val context: Context) {
 
     suspend fun setSignInPromptDismissed(dismissed: Boolean) {
         context.dataStore.edit { it[Keys.SIGN_IN_PROMPT_DISMISSED] = dismissed }
+    }
+
+    suspend fun setNativeReaderEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NATIVE_READER] = enabled }
     }
 
     suspend fun setBottomBarItems(items: List<BottomBarItem>) {

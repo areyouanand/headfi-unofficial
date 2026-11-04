@@ -12,7 +12,7 @@
 
 ---
 
-A native **Kotlin + Jetpack Compose** client that wraps Head-Fi's XenForo 2.3 platform in a **Material 3 Expressive** adaptive shell, with guaranteed login persistence across app restarts and device reboots, custom dark/AMOLED styling, ad/tracker blocking, background unread notifications, reading and layout controls, multi-photo uploads with camera capture, and a monochrome Head-Fi adaptive icon.
+A native **Kotlin + Jetpack Compose** client for Head-Fi's XenForo 2.3 platform: forums, thread lists, thread pages, What's New, watched threads, search results and alerts are fetched with OkHttp and rendered as native Compose screens, with a Material 3 Expressive adaptive shell, guaranteed login persistence across app restarts and device reboots, custom dark/AMOLED styling, ad/tracker blocking, background unread notifications, reading and layout controls, multi-photo uploads with camera capture, and a monochrome Head-Fi adaptive icon. The WebView stays as the fallback for sign-in, Cloudflare challenges, replies, Classifieds and Showcase.
 
 ## 📥 Download
 
@@ -25,6 +25,7 @@ Grab the latest APK from the [**Releases**](https://github.com/areyouanand/headf
 
 ## ✨ Features
 
+- **Native forum & thread reading** — forums, thread lists, thread pages, What's New, watched threads, search results and alerts are fetched over HTTP with the WebView's own login and Cloudflare cookies, parsed with Jsoup, and rendered as Compose screens. Post bodies keep bold/italic/links/quotes/lists and inline images (via Coil, authenticated with the same cookies). Home and forum views fall back to Head-Fi's public RSS feeds when the browser check has not been cleared yet, so the app is useful before the first challenge is solved. Replies, attachments, Classifieds and Showcase still open in the browser view because they use XenForo's own editor. If a page ever looks wrong, turn it off under **Account & Settings → Reading & Layout → Native reader**.
 - **Login that survives reboots** — dual-layer cookie persistence (native `CookieManager` SQLite flush + a DataStore vault that re-injects `xf_*`/`cf_*` cookies on cold boot). "Stay logged in" is auto-checked so the long-lived `xf_user` cookie is always issued.
 - **XenForo session bridge** — username, avatar, unread alerts and conversations show up natively in the top bar and account sheet.
 - **Material 3 Expressive shell** — a custom bottom bar on phones (equal-width slots, with a tab-style indicator on the active section), navigation rail on tablets/foldables; Home, Forums, What's New, Head Gear, and Classifieds sections; pull-to-refresh, predictive back, find-in-page, search.

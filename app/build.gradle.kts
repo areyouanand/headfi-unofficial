@@ -95,5 +95,14 @@ dependencies {
     implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.kotlinx.coroutines.android)
 
+    // Native content layer (see net/): HTML is fetched with OkHttp using the
+    // WebView's own cookies, then parsed into plain data classes with Jsoup.
+    implementation(libs.okhttp)
+    implementation(libs.jsoup)
+    implementation(libs.coil.compose)
+
     debugImplementation(libs.androidx.ui.tooling)
+
+    // JVM-only tests for the XenForo parsers, which take raw HTML strings.
+    testImplementation(libs.junit)
 }
