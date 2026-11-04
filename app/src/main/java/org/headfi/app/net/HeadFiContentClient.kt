@@ -4,6 +4,7 @@ import android.content.Context
 import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import org.headfi.app.data.SessionPreferencesRepository
 import org.headfi.app.net.xenforo.ForumsIndexParser
 import org.headfi.app.net.xenforo.XenForoMarkup
@@ -30,7 +31,7 @@ class HeadFiContentClient(
         headers: Map<String, String> = emptyMap()
     ): PagePayload = withContext(Dispatchers.IO) {
         val request = try {
-            buildRequest(url, headers)
+            newBuilder(url, headers).get().build()
         } catch (e: IllegalArgumentException) {
             return@withContext PagePayload.Unavailable(url, "Bad URL: ${e.message}")
         }
@@ -92,7 +93,7 @@ class HeadFiContentClient(
             "GET /forums/ -> unavailable: ${payload.reason}"
     }
 
-    private suspend fun buildRequest(url: String, headers: Map<String, String>) =
+    private suspend fun newBuilder(url: String, headers: Map<String, String>) =
         okhttp3.Request.Builder()
             .url(url)
             .header("User-Agent", HeadFiUserAgent.mobile(appContext))
@@ -112,8 +113,48 @@ class HeadFiContentClient(
                     repository.cookieHeader()?.let { header("Cookie", it) }
                 }
             }
-            .get()
-            .build()
+
+    /**
+     * Performs a XenForo form POST (currently only reactions).
+     *
+     * Returns true only when the server accepted it: a 2xx challenge page is a
+     * rejection, and so is being bounced to the login page because the session
+     * expired. Callers fall back to the WebView instead of pretending it worked.
+     */
+    suspend fun postForm(
+        url: String,
+        fields: Map<String, String>
+    ): Boolean = withContext(Dispatchers.IO) {
+        val body = FormBody.Builder().apply {
+            fields.forEach { (name, value) -> add(name, value) }
+        }.build()
+
+        val request = try {
+            newBuilder(
+                url,
+                mapOf(
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                    "X-Requested-With" to "XMLHttpRequest"
+                )
+            ).post(body).build()
+        } catch (e: IllegalArgumentException) {
+            return@withContext false
+        }
+
+        try {
+            client.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                val finalUrl = response.request.url.toString()
+
+                response.isSuccessful &&
+                    !XenForoMarkup.isChallengePage(text, finalUrl) &&
+                    !XenForoMarkup.meta(text).isLoginPage &&
+                    !text.contains("\"errors\"")
+            }
+        } catch (e: IOException) {
+            false
+        }
+    }
 
     private companion object {
         const val URL_FORUMS_INDEX = "https://www.head-fi.org/forums/"

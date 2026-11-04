@@ -158,16 +158,29 @@ fetched over HTTP and rendered as Compose screens.
   Turning it off keeps the user on the same URL but renders it in the WebView,
   and the setting persists. It exists because markup drift is the one real risk
   of a parser-based reader.
+- **Post actions (v1.6.0-beta.2)** — each post renders Like / Quote / Reply /
+  Share. `ThreadPostsParser` reads the reaction endpoint (`a[href*='/react']` with
+  its `data-reaction-id` and label), the per-post quote link
+  (`/reply?quote=<postId>`) and the page CSRF token (`data-csrf`) straight from
+  the rendered page. Like POSTs `_xfToken` + `reaction_id` through
+  `HeadFiContentClient.postForm`, which treats a challenge page, a login page or
+  an `errors` payload as failure — then that post opens in the WebView instead of
+  the app pretending it worked. The reaction is applied optimistically (repeat
+  taps toggle it) rather than reloading the thread, because a reload would throw
+  away the reader's scroll position. Quote/Reply open XenForo's editor with the
+  quote prefilled; Share uses the Android share sheet with the post permalink.
+  **The reaction POST is unverified on-device** — if Head-Fi rejects the request,
+  the browser fallback is what users will see.
 - **Debug probe** — debug builds `GET /forums/` once at startup and log a
   one-line classification + parse summary under the `HeadFiContent` logcat tag.
   Useful on a device where automated UI inspection is unavailable; never runs in
   release.
-- **Verified in this workstation**: `testDebugUnitTest` (24 JVM tests covering
-  challenge detection, forum index, thread list, thread posts/formatting, alerts
-  and the RSS fallback) and `assembleDebug`/`assembleRelease` with R8. **Not
-  verified on a device** — no phone was attached during this work, so live markup
-  against the real site is still unconfirmed (the live RSS endpoints were checked
-  over HTTP and do return the parsed shape).
+- **Verified in this workstation**: `testDebugUnitTest` (26 JVM tests covering
+  challenge detection, forum index, thread list, thread posts/formatting, post
+  actions, alerts and the RSS fallback) and `assembleDebug`/`assembleRelease` with
+  R8. **Not verified on a device** — no phone was attached during this work, so
+  live markup against the real site is still unconfirmed (the live RSS endpoints
+  were checked over HTTP and do return the parsed shape).
 
 ---
 
@@ -298,7 +311,7 @@ F:\AI stuff\HeadFi-Org\
 - **Open risk — Cloudflare Turnstile does not auto-clear on a fresh profile.** A clean install lands on `/bot/challenge` and stays there; tapping the widget at several coordinates and waiting did not complete it. The user's own install carries a `cf_clearance` cookie so it passes, but if that cookie ever expires or app data is cleared, the app will sit on the challenge with no obvious way past it. This is untriaged and is the most likely next user-visible complaint.
 - **Verified on device (v1.5.0 release, via screenshots):** the bottom bar layout, labels and tab indicator.
 - **Still compile-verified only:** bottom bar customisation, ordering and persistence; the reconnect callback; the Turnstile challenge watcher; Check now; scroll restore on layout switch; foreground suppression; find-in-page; the offline banner; camera capture; and the live application of text zoom and Data Saver. The header hiding toggle is gone, so there is nothing left to verify there.
-- **Native content layer (section F) — verified how?** `.\gradlew.bat testDebugUnitTest` runs 20 JVM tests against captured-shape XenForo fixtures, and `assembleDebug`/`assembleRelease` both pass with R8 (confirmed the parsers, `ContentRepository`, `HeadFiContentClient` and the native screens survive shrinking in `mapping.txt`). What remains unverified is the real thing: whether Head-Fi's live markup matches those selectors, and whether `cf_clearance` obtained by the WebView is accepted by OkHttp. Run the debug build on a device and watch `adb logcat -s HeadFiContent` — it logs whether `/forums/` came back as HTML (with category/forum counts) or as a challenge page. If it is a challenge page even after opening the site in the browser view, the UA/cookie bridge is the first suspect.
+- **Native content layer (section F) — verified how?** `.\gradlew.bat testDebugUnitTest` runs 26 JVM tests against captured-shape XenForo fixtures, and `assembleDebug`/`assembleRelease` both pass with R8 (confirmed the parsers, `ContentRepository`, `HeadFiContentClient` and the native screens survive shrinking in `mapping.txt`). What remains unverified is the real thing: whether Head-Fi's live markup matches those selectors, and whether `cf_clearance` obtained by the WebView is accepted by OkHttp. Run the debug build on a device and watch `adb logcat -s HeadFiContent` — it logs whether `/forums/` came back as HTML (with category/forum counts) or as a challenge page. If it is a challenge page even after opening the site in the browser view, the UA/cookie bridge is the first suspect.
 - Note: `gradlew` (the Unix shell script) must keep its executable bit — it was briefly committed as `100644`, which broke a Linux CI run, and was fixed in `ee3b4b0`. Windows builds are unaffected either way, so this is easy to regress by accident on a Windows checkout.
 
 ### Release & Versioning (v1.6.0-beta)

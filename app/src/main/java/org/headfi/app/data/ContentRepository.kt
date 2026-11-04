@@ -47,13 +47,27 @@ class ContentRepository(context: Context) {
     private data class CacheEntry(val value: Any, val storedAtMs: Long)
 
     suspend fun forums(url: String): ContentResult<List<ForumCategory>> =
-        load(url) { ForumsIndexParser.parse(it) }
+        load(url) { ForumsIndexParser.parse(it, url) }
 
     suspend fun threadPosts(url: String): ContentResult<ThreadPostsPage> =
-        load(url) { ThreadPostsParser.parse(it) }
+        load(url) { ThreadPostsParser.parse(it, url) }
 
     suspend fun alerts(url: String): ContentResult<AlertsPage> =
-        load(url) { AlertsParser.parse(it) }
+        load(url) { AlertsParser.parse(it, url) }
+
+    /**
+     * Sends a reaction ("Like") for a post. Returns false when XenForo rejected
+     * it — a challenge page, an expired session, or an error payload — so the
+     * caller can hand that post to the WebView instead.
+     */
+    suspend fun react(reactionUrl: String, csrfToken: String, reactionId: Int): Boolean =
+        client.postForm(
+            url = reactionUrl,
+            fields = mapOf(
+                "_xfToken" to csrfToken,
+                "reaction_id" to reactionId.toString()
+            )
+        )
 
     suspend fun threadList(url: String): ContentResult<ThreadListPage> {
         cached<ThreadListPage>(url)?.let { return ContentResult.Ready(it) }
@@ -61,7 +75,7 @@ class ContentRepository(context: Context) {
         val payload = client.get(url)
 
         if (payload is PagePayload.Html) {
-            runCatching { ThreadListParser.parse(payload.html) }
+            runCatching { ThreadListParser.parse(payload.html, url) }
                 .onSuccess { page ->
                     put(url, page)
                     return ContentResult.Ready(page)

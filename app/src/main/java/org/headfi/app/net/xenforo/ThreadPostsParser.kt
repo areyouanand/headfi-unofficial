@@ -20,7 +20,7 @@ object ThreadPostsParser {
         // posts that share the `.message` component.
         val messageElements = document.select(".message--post")
         val posts = (if (messageElements.isNotEmpty()) messageElements else document.select(".message"))
-            .mapIndexedNotNull { index, element -> parsePost(element, index) }
+            .mapIndexedNotNull { index, element -> parsePost(element, index, baseUrl) }
 
         if (posts.isEmpty()) {
             throw XenForoParseException(
@@ -31,7 +31,8 @@ object ThreadPostsParser {
         return ThreadPostsPage(
             title = title(document),
             posts = posts,
-            pageNav = PageNavParser.parse(document)
+            pageNav = PageNavParser.parse(document),
+            csrfToken = XenForoMarkup.meta(html).csrf
         )
     }
 
@@ -42,7 +43,7 @@ object ThreadPostsParser {
             ?.takeIf { it.isNotEmpty() }
             ?: document.title().substringBefore(" | ").trim().takeIf { it.isNotEmpty() }
 
-    private fun parsePost(element: Element, index: Int): ForumPost? {
+    private fun parsePost(element: Element, index: Int, baseUrl: String): ForumPost? {
         val author = element.attr("data-author").trim()
             .ifBlank { element.selectFirst(".message-name .username")?.text()?.trim().orEmpty() }
         if (author.isEmpty()) return null
@@ -50,9 +51,27 @@ object ThreadPostsParser {
         val permalinkElement = element.selectFirst(".message-attribution-opposite a[href]")
         val body = element.selectFirst(".message-content .bbWrapper")
             ?: element.selectFirst(".bbWrapper")
+        val postId = postId(element)
+
+        // XenForo puts the reaction and per-post reply links in the post footer.
+        val actionBar = element.selectFirst(".message-actionBar")
+            ?: element.selectFirst(".actionBar")
+            ?: element
+
+        val reaction = actionBar.selectFirst("a[href*='/react']")
+        val reactionUrl = reaction
+            ?.let { it.absUrl("href").ifBlank { it.attr("href") } }
+            ?.takeIf { it.isNotBlank() }
+            ?.let(XenForoUrls::absolute)
+
+        val quoteUrl = actionBar.selectFirst("a[href*='/reply']")
+            ?.let { it.absUrl("href").ifBlank { it.attr("href") } }
+            ?.takeIf { it.isNotBlank() }
+            ?.let(XenForoUrls::absolute)
+            ?: postId?.let { "${XenForoUrls.replyUrl(baseUrl)}?quote=$it" }
 
         return ForumPost(
-            postId = postId(element),
+            postId = postId,
             author = author,
             avatarUrl = element.selectFirst(".message-cell--user img.avatar[src], .message-avatar img[src]")
                 ?.let { imageUrl(it) },
@@ -70,7 +89,22 @@ object ThreadPostsParser {
                 ?.takeIf { it.isNotBlank() }
                 ?.let(XenForoUrls::absolute),
             isFirstPost = index == 0 || element.hasClass("message--firstPost"),
-            blocks = PostBodyParser.parse(body)
+            blocks = PostBodyParser.parse(body),
+            reactionUrl = reactionUrl,
+            reactionId = reaction?.attr("data-reaction-id")?.toIntOrNull()
+                ?: Regex("""reaction_id=(\d+)""")
+                    .find(reactionUrl.orEmpty())
+                    ?.groupValues
+                    ?.get(1)
+                    ?.toIntOrNull(),
+            reactionLabel = reaction
+                ?.selectFirst(".reaction-text")
+                ?.text()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && it.length <= 24 },
+            hasReacted = reaction?.hasClass("is-reacted") == true ||
+                reaction?.attr("data-reacted") == "true",
+            quoteUrl = quoteUrl
         )
     }
 

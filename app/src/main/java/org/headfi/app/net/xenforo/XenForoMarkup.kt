@@ -21,6 +21,7 @@ object XenForoMarkup {
     private val TEMPLATE = Regex("""data-template="([^"]*)"""")
     private val XF_VERSION = Regex("""data-xf="([^"]*)"""")
     private val LOGGED_IN = Regex("""data-logged-in="([^"]*)"""")
+    private val CSRF = Regex("""data-csrf="([^"]*)"""")
 
     /** Cloudflare's own interstitial, as opposed to Head-Fi's challenge template. */
     private val CLOUDFLARE_INTERSTITIAL_MARKERS = listOf(
@@ -33,7 +34,9 @@ object XenForoMarkup {
     data class Meta(
         val template: String?,
         val xfVersion: String?,
-        val loggedIn: Boolean
+        val loggedIn: Boolean,
+        /** CSRF token from `data-csrf`, needed for native form posts (reactions). */
+        val csrf: String? = null
     ) {
         val isLoginPage: Boolean get() = template == TEMPLATE_LOGIN
     }
@@ -43,7 +46,8 @@ object XenForoMarkup {
         return Meta(
             template = TEMPLATE.find(head)?.groupValues?.get(1),
             xfVersion = XF_VERSION.find(head)?.groupValues?.get(1),
-            loggedIn = LOGGED_IN.find(head)?.groupValues?.get(1) == "true"
+            loggedIn = LOGGED_IN.find(head)?.groupValues?.get(1) == "true",
+            csrf = CSRF.find(head)?.groupValues?.get(1)
         )
     }
 

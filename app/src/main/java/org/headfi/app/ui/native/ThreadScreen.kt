@@ -22,20 +22,31 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Reply
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -48,12 +59,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import org.headfi.app.data.ContentRepository
 import org.headfi.app.net.xenforo.ForumPost
 import org.headfi.app.net.xenforo.PostBlock
 import org.headfi.app.net.xenforo.RichText
 import org.headfi.app.net.xenforo.TextSpan
 import org.headfi.app.net.xenforo.XenForoUrls
+import org.headfi.app.util.DownloadAndShareHelper
 
 @Composable
 fun ThreadScreen(
@@ -74,6 +87,60 @@ fun ThreadScreen(
     }
     val ready = state as? Loadable.Ready
     val title = ready?.value?.title ?: destination.title.ifBlank { "Thread" }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var reactingPostId by remember { mutableStateOf<Int?>(null) }
+    // Optimistic reaction state: updated in place instead of reloading the page,
+    // which would throw away the reader's scroll position. The server value wins
+    // again on the next refresh.
+    var reactedOverrides by remember(destination.url) {
+        mutableStateOf<Map<Int, Boolean>>(emptyMap())
+    }
+    val csrfToken = ready?.value?.csrfToken
+
+    // Like/Quote/Reply/Share: only reading was native before v1.6.0-beta.2.
+    val reactPost: (ForumPost) -> Unit = { post ->
+        val postId = post.postId
+        val reactionUrl = post.reactionUrl
+        if (postId == null || reactionUrl == null || csrfToken == null) {
+            // No reaction link (signed out) or no CSRF token: let the site do it.
+            onOpenWeb(post.permalink ?: destination.url)
+        } else if (reactingPostId == null) {
+            val wasReacted = reactedOverrides[postId] ?: post.hasReacted
+            scope.launch {
+                reactingPostId = postId
+                val accepted = repository.react(
+                    reactionUrl = reactionUrl,
+                    csrfToken = csrfToken,
+                    reactionId = post.reactionId ?: DEFAULT_REACTION_ID
+                )
+                reactingPostId = null
+                if (accepted) {
+                    reactedOverrides = reactedOverrides + (postId to !wasReacted)
+                } else {
+                    onOpenWeb(post.permalink ?: destination.url)
+                }
+            }
+        }
+    }
+
+    val quotePost: (ForumPost) -> Unit = { post ->
+        val fallback = XenForoUrls.replyUrl(destination.url)
+        onOpenWeb(post.quoteUrl ?: post.postId?.let { "$fallback?quote=$it" } ?: fallback)
+    }
+
+    val replyPost: (ForumPost) -> Unit = {
+        onOpenWeb(XenForoUrls.replyUrl(destination.url))
+    }
+
+    val sharePost: (ForumPost) -> Unit = { post ->
+        DownloadAndShareHelper.sharePage(
+            context = context,
+            title = post.author,
+            url = post.permalink ?: destination.url
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -109,10 +176,19 @@ fun ThreadScreen(
             is Loadable.Ready -> {
                 val page = state.value
                 items(page.posts) { post ->
+                    val isReacted = post.postId
+                        ?.let { reactedOverrides[it] }
+                        ?: post.hasReacted
                     PostCard(
                         post = post,
                         textScale = textScale,
                         loadImages = loadImages,
+                        isReacted = isReacted,
+                        isReacting = reactingPostId == post.postId,
+                        onReact = { reactPost(post) },
+                        onQuote = { quotePost(post) },
+                        onReply = { replyPost(post) },
+                        onShare = { sharePost(post) },
                         onLinkClick = { url ->
                             when {
                                 onNavigateLink(url, onOpenDestination) -> Unit
@@ -171,6 +247,12 @@ private fun PostCard(
     post: ForumPost,
     textScale: Float,
     loadImages: Boolean,
+    isReacted: Boolean,
+    isReacting: Boolean,
+    onReact: () -> Unit,
+    onQuote: () -> Unit,
+    onReply: () -> Unit,
+    onShare: () -> Unit,
     onLinkClick: (String) -> Unit,
     onImageClick: (String) -> Unit
 ) {
@@ -256,11 +338,77 @@ private fun PostCard(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+            PostAction(
+                icon = Icons.Outlined.FavoriteBorder,
+                label = when {
+                    isReacted -> "Reacted"
+                    else -> post.reactionLabel ?: "Like"
+                },
+                enabled = !isReacting,
+                modifier = Modifier.weight(1f),
+                onClick = onReact
+            )
+            PostAction(
+                icon = Icons.Outlined.FormatQuote,
+                label = "Quote",
+                modifier = Modifier.weight(1f),
+                onClick = onQuote
+            )
+            PostAction(
+                icon = Icons.AutoMirrored.Outlined.Reply,
+                label = "Reply",
+                modifier = Modifier.weight(1f),
+                onClick = onReply
+            )
+            PostAction(
+                icon = Icons.Outlined.Share,
+                label = "Share",
+                modifier = Modifier.weight(1f),
+                onClick = onShare
+            )
+        }
     }
     HorizontalDivider(
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
         thickness = 1.dp
     )
+}
+
+@Composable
+private fun PostAction(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+        modifier = modifier
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 @Suppress("DEPRECATION")
@@ -356,6 +504,9 @@ private fun onNavigateLink(
 }
 
 private const val LINK_TAG = "HEADFI_LINK"
+
+/** XenForo's first/default reaction is "Like". */
+private const val DEFAULT_REACTION_ID = 1
 
 private fun RichText.toAnnotatedString(linkColor: Color): AnnotatedString = buildAnnotatedString {
     append(text)

@@ -97,6 +97,39 @@ class ThreadPostsParserTest {
     }
 
     @Test
+    fun `reads reaction, quote and csrf so post actions work natively`() {
+        val page = ThreadPostsParser.parse(fixture("thread_posts.html"))
+        val first = page.posts[0]
+
+        assertEquals(
+            "1793795840,8a6bd311210485018ae3919f6bad7399",
+            page.csrfToken
+        )
+        assertEquals("https://www.head-fi.org/posts/9001/react?reaction_id=1", first.reactionUrl)
+        assertEquals(1, first.reactionId)
+        assertEquals("Like", first.reactionLabel)
+        assertFalse(first.hasReacted)
+        assertEquals(
+            "https://www.head-fi.org/threads/best-closed.500/reply?quote=9001",
+            first.quoteUrl
+        )
+    }
+
+    @Test
+    fun `falls back to a quote url when the action bar is absent`() {
+        val post = ThreadPostsParser.parse(
+            html = fixture("thread_posts.html"),
+            baseUrl = "https://www.head-fi.org/threads/best-closed.500/"
+        ).posts[1]
+
+        assertNull(post.reactionUrl)
+        assertEquals(
+            "https://www.head-fi.org/threads/best-closed.500/reply?quote=9002",
+            post.quoteUrl
+        )
+    }
+
+    @Test
     fun `unknown thumbnail dimensions are still treated as content images`() {
         val html = """
             <article class="message message--post" data-author="Bob">

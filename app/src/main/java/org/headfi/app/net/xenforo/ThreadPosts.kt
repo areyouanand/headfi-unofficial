@@ -29,11 +29,20 @@ data class ForumPost(
     val postNumber: String?,
     val permalink: String?,
     val isFirstPost: Boolean,
-    val blocks: List<PostBlock>
+    val blocks: List<PostBlock>,
+    /** XenForo's "Like"/reaction endpoint for this post, taken from the page. */
+    val reactionUrl: String? = null,
+    val reactionId: Int? = null,
+    val reactionLabel: String? = null,
+    val hasReacted: Boolean = false,
+    /** Per-post reply link, normally `/threads/<slug>.<id>/reply?quote=<postId>`. */
+    val quoteUrl: String? = null
 )
 
 data class ThreadPostsPage(
     val title: String?,
     val posts: List<ForumPost>,
-    val pageNav: PageNav
+    val pageNav: PageNav,
+    /** CSRF token required to POST a reaction back to XenForo. */
+    val csrfToken: String? = null
 )
