@@ -35,9 +35,10 @@ jobs:
           # Commit-count is not monotonic: a hotfix tagged on `stable` after
           # `main` has advanced would produce a lower code than an already
           # published APK, and Android would refuse to install over it. The
-          # workflow run number only ever grows, and +100 keeps it clear of the
-          # local side-loaded builds from the v1.6.0 development cycle.
-          echo "code=$(( GITHUB_RUN_NUMBER + 100 ))" >> "$GITHUB_OUTPUT"
+          # workflow run number only ever grows. +1000 keeps CI builds above the
+          # local side-loaded development builds (which reached code 148 during
+          # the v1.7.0 cycle); local builds must stay well below this offset.
+          echo "code=$(( GITHUB_RUN_NUMBER + 1000 ))" >> "$GITHUB_OUTPUT"
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --no-daemon

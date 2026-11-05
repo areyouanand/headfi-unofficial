@@ -68,7 +68,7 @@ Open the project in Android Studio (Ladybug or newer), or from the command line:
 ### Versioning scheme
 
 - **Version name** comes from the git tag (`v1.2.3` → `1.2.3`), or defaults to `1.0.0`.
-- **Version code** comes from the GitHub Actions run number plus a fixed offset (currently 100), so it always increases across tags and branches.
+- **Version code** comes from the GitHub Actions run number plus a fixed offset (currently 1000), so it always increases across tags and branches and stays above local development builds.
 - Override either manually: `./gradlew assembleRelease -PAPP_VERSION_NAME=1.2.3 -PAPP_VERSION_CODE=42`.
 
 ### About the committed signing key
