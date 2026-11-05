@@ -92,6 +92,7 @@ fun AccountAndSettingsSheet(
     onSiteLayoutChange: (SiteLayout) -> Unit,
     onNativeReaderChange: (Boolean) -> Unit,
     onBottomBarItemsChange: (List<BottomBarItem>) -> Unit,
+    onSessionHealthClick: () -> Unit,
     onCheckUnreadNowClick: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -175,6 +176,15 @@ fun AccountAndSettingsSheet(
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            TextButton(
+                                onClick = onSessionHealthClick,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            ) {
+                                Text(
+                                    text = "Session health & diagnostics",
+                                    style = MaterialTheme.typography.labelMedium
                                 )
                             }
                         }

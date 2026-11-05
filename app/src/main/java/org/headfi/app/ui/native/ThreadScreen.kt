@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
@@ -82,6 +83,7 @@ fun ThreadScreen(
     canGoBack: Boolean,
     textScale: Float,
     loadImages: Boolean,
+    listState: LazyListState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onOpenWeb: (String) -> Unit,
@@ -107,6 +109,7 @@ fun ThreadScreen(
 
     var showWatchDialog by remember { mutableStateOf(false) }
     var watchBusy by remember { mutableStateOf(false) }
+    var viewerImageUrl by remember { mutableStateOf<String?>(null) }
     var watchingOverride by remember(destination.url) { mutableStateOf<Boolean?>(null) }
     val isWatching = watchingOverride ?: ready?.value?.isWatching ?: false
 
@@ -211,7 +214,9 @@ fun ThreadScreen(
         )
     }
 
+    NativePullToRefresh(isRefreshing = state.isRefreshing, onRefresh = onRefresh) {
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
@@ -229,6 +234,10 @@ fun ThreadScreen(
             )
         }
 
+        ready?.refreshError?.let { message ->
+            item { RefreshErrorBanner(message, onRetry = onRefresh) }
+        }
+
         when (state) {
             is Loadable.Loading -> item { LoadingState("Loading thread…") }
 
@@ -241,7 +250,11 @@ fun ThreadScreen(
             }
 
             is Loadable.Verification -> item {
-                VerificationState(onVerify = { onOpenWeb(state.url) })
+                VerificationState(
+                    onVerify = { onOpenWeb(state.url) },
+                    url = state.url,
+                    onRetry = onRefresh
+                )
             }
 
             is Loadable.Ready -> {
@@ -274,7 +287,7 @@ fun ThreadScreen(
                                 else -> onOpenExternal(url)
                             }
                         },
-                        onImageClick = onOpenExternal
+                        onImageClick = { url -> viewerImageUrl = url }
                     )
                 }
 
@@ -307,6 +320,16 @@ fun ThreadScreen(
                                 page.pageNav.lastUrl?.let {
                                     onOpenDestination(NativeDestination.Thread(it, title))
                                 }
+                            },
+                            pageCount = page.pageNav.pageCount,
+                            currentPage = page.pageNav.currentPage,
+                            onJumpToPage = { target ->
+                                onOpenDestination(
+                                    NativeDestination.Thread(
+                                        XenForoUrls.pageUrl(destination.url, target),
+                                        title
+                                    )
+                                )
                             }
                         )
                     }
@@ -332,6 +355,7 @@ fun ThreadScreen(
             }
         }
     }
+    }
 
     if (showWatchDialog) {
         WatchThreadDialog(
@@ -340,6 +364,17 @@ fun ThreadScreen(
             onWatch = performWatch,
             onUnwatch = performUnwatch,
             onDismiss = { showWatchDialog = false }
+        )
+    }
+
+    viewerImageUrl?.let { imageUrl ->
+        ImageViewerDialog(
+            url = imageUrl,
+            onDismiss = { viewerImageUrl = null },
+            onOpenExternal = {
+                viewerImageUrl = null
+                onOpenExternal(it)
+            }
         )
     }
 }

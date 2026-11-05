@@ -1,6 +1,8 @@
 package org.headfi.app.ui.native
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import org.headfi.app.data.ContentRepository
 import org.headfi.app.model.UserSessionState
 import org.headfi.app.net.xenforo.ThreadSummary
@@ -27,12 +29,21 @@ fun NativeContentHost(
     val canGoBack = navigator.canGoBack
     val onBack: () -> Unit = { navigator.back() }
 
+    // One scroll position per destination, held above the screen composables so
+    // Back from a thread returns the list to where the reader left it.
+    val listStates = remember { mutableMapOf<String, LazyListState>() }
+    val listStateFor: (String) -> LazyListState = { key ->
+        listStates.getOrPut(key) { LazyListState() }
+    }
+
     val openDestination: (NativeDestination) -> Unit = { navigator.open(it) }
     val openUrl: (String) -> Unit = { url ->
         if (!navigator.openUrl(url)) onOpenWeb(url)
     }
     val openThread: (ThreadSummary) -> Unit = { thread ->
-        navigator.open(NativeDestination.Thread(thread.url, thread.title))
+        // An unread thread opens at the first unread post, like XenForo itself.
+        val target = thread.unreadUrl ?: thread.url
+        navigator.open(NativeDestination.Thread(target, thread.title))
     }
 
     when (val destination = navigator.current) {
@@ -40,9 +51,11 @@ fun NativeContentHost(
             repository = repository,
             refreshToken = refreshToken,
             session = session,
+            listState = listStateFor(destination.url),
             onRefresh = onRefresh,
             onOpenDestination = openDestination,
             onOpenWeb = onOpenWeb,
+            onOpenUrl = openUrl,
             onOpenThread = openThread
         )
 
@@ -50,6 +63,7 @@ fun NativeContentHost(
             repository = repository,
             refreshToken = refreshToken,
             canGoBack = canGoBack,
+            listState = listStateFor(destination.url),
             onBack = onBack,
             onRefresh = onRefresh,
             onOpenWeb = onOpenWeb,
@@ -63,6 +77,7 @@ fun NativeContentHost(
             repository = repository,
             refreshToken = refreshToken,
             canGoBack = canGoBack,
+            listState = listStateFor(destination.url),
             onBack = onBack,
             onRefresh = onRefresh,
             onOpenWeb = onOpenWeb,
@@ -77,6 +92,7 @@ fun NativeContentHost(
             canGoBack = canGoBack,
             textScale = textScale,
             loadImages = loadImages,
+            listState = listStateFor(destination.url),
             onBack = onBack,
             onRefresh = onRefresh,
             onOpenWeb = onOpenWeb,
@@ -89,6 +105,7 @@ fun NativeContentHost(
             repository = repository,
             refreshToken = refreshToken,
             canGoBack = canGoBack,
+            listState = listStateFor(destination.url),
             onBack = onBack,
             onRefresh = onRefresh,
             onOpenWeb = onOpenWeb,

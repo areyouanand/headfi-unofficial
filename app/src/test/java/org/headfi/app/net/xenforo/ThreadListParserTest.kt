@@ -33,6 +33,7 @@ class ThreadListParserTest {
         assertEquals("Portable Headphones", pinned.forumName)
         assertTrue(pinned.isSticky)
         assertFalse(pinned.isUnread)
+        assertNull(pinned.unreadUrl)
     }
 
     @Test
@@ -45,6 +46,33 @@ class ThreadListParserTest {
         // "1.2K" cannot be read exactly, so it is omitted rather than guessed.
         assertNull(unread.viewCount)
         assertNull(unread.prefix)
+        assertEquals(
+            "https://www.head-fi.org/threads/closed-back.101/unread",
+            unread.unreadUrl
+        )
+    }
+
+    @Test
+    fun `synthesizes a first-unread route when the row has no link`() {        val html = """
+            <html data-xf="2.3" data-template="forum_view"><body>
+            <div class="structItem structItem--thread structItem--unread"
+                 data-content="thread-42">
+                <div class="structItem-title">
+                    <a href="/threads/slug.42/page-3">A thread</a>
+                </div>
+            </div>
+            </body></html>
+        """.trimIndent()
+
+        val thread = ThreadListParser.parse(html).threads.single()
+        assertEquals(
+            "https://www.head-fi.org/threads/slug.42/page-3",
+            thread.url
+        )
+        assertEquals(
+            "https://www.head-fi.org/threads/slug.42/unread",
+            thread.unreadUrl
+        )
     }
 
     @Test
@@ -70,5 +98,28 @@ class ThreadListParserTest {
             nav.lastUrl
         )
         assertTrue(nav.hasLast)
+    }
+
+    @Test
+    fun `parses search results from content rows`() {
+        val page = ThreadListParser.parse(fixture("search_results.html"))
+
+        assertEquals(2, page.threads.size)
+
+        val thread = page.threads[0]
+        assertEquals("MOONDROP EDGE Gets an Upgrade", thread.title)
+        assertEquals(
+            "https://www.head-fi.org/threads/moondrop-edge.981849/",
+            thread.url
+        )
+        assertEquals("...the EDGE 2 brings a refreshed experience...", thread.snippet)
+        assertEquals("Portable Headphones", thread.forumName)
+        assertEquals("Today at 9:00 AM", thread.lastPostTime)
+
+        val post = page.threads[1]
+        assertEquals("https://www.head-fi.org/posts/19302448/", post.url)
+        assertNull(post.forumName)
+
+        assertEquals(2, page.pageNav.pageCount)
     }
 }

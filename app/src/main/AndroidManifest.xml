@@ -37,8 +37,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep links for head-fi.org URLs -->
-            <intent-filter android:autoVerify="true">
+            <!-- Deep links for head-fi.org URLs. autoVerify is deliberately omitted:
+                 the app cannot publish assetlinks.json on Head-Fi's domain, so
+                 verified App Links are impossible here. -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />

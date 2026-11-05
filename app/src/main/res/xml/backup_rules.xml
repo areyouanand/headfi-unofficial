@@ -2,4 +2,7 @@
 <full-backup-content>
     <include domain="sharedpref" path="." />
     <include domain="file" path="datastore/" />
+    <!-- Session cookies live in headfi_session and must never be uploaded to
+         cloud backup or carried to another device by device transfer. -->
+    <exclude domain="file" path="datastore/headfi_session.preferences_pb" />
 </full-backup-content>

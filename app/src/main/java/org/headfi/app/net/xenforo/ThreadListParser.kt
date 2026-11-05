@@ -17,8 +17,14 @@ object ThreadListParser {
     fun parse(html: String, baseUrl: String = XenForoUrls.BASE): ThreadListPage {
         val document = Jsoup.parse(html, baseUrl)
 
-        val threads = document.select(".structItem--thread")
+        // Forum views, What's New and watched threads use `.structItem--thread`.
+        // XenForo renders search results as `.contentRow` (the same row style as
+        // alerts), so a search URL was always "No thread rows found" before this.
+        val threadRows = document.select(".structItem--thread")
             .mapNotNull(::parseRow)
+        val threads = threadRows.ifEmpty {
+            document.select(".contentRow").mapNotNull(::parseSearchRow)
+        }
 
         if (threads.isEmpty()) {
             throw XenForoParseException(
@@ -43,6 +49,18 @@ object ThreadListParser {
         if (title.isEmpty()) return null
 
         val href = titleLink.absUrl("href").ifBlank { titleLink.attr("href") }
+        val isUnread = row.hasClass("structItem--unread") ||
+            row.hasClass("is-unread") ||
+            row.selectFirst(".structItem-iconContainer .unread") != null
+
+        val unreadHref = row.select("a[href]")
+            .firstOrNull { link ->
+                val candidate = link.attr("href")
+                candidate.endsWith("/unread") ||
+                    candidate.contains("/unread?") ||
+                    link.hasClass("unreadLink")
+            }
+            ?.let { link -> link.absUrl("href").ifBlank { link.attr("href") } }
 
         return ThreadSummary(
             threadId = XenForoUrls.threadId(href) ?: idFromDataContent(row),
@@ -71,14 +89,58 @@ object ThreadListParser {
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() },
             isSticky = row.hasClass("is-pinned") || row.hasClass("structItem--sticky"),
-            isUnread = row.hasClass("structItem--unread") ||
-                row.hasClass("is-unread") ||
-                row.selectFirst(".structItem-iconContainer .unread") != null
+            isUnread = isUnread,
+            unreadUrl = unreadHref?.let(XenForoUrls::absolute)
+                ?: if (isUnread) XenForoUrls.firstUnreadUrl(href) else null
         )
     }
 
     private fun idFromDataContent(row: Element): Int? =
         Regex("""thread-(\d+)""").find(row.attr("data-content"))?.groupValues?.get(1)?.toIntOrNull()
+
+    /**
+     * Search results: `.contentRow` with the thread/post link in the title, the
+     * matched text in `.contentRow-snippet`, and the date/forum in the minor row.
+     */
+    private fun parseSearchRow(row: Element): ThreadSummary? {
+        val link = row.selectFirst(".contentRow-title a[href]") ?: return null
+        val title = link.text().trim()
+        if (title.isEmpty()) return null
+
+        val href = link.absUrl("href").ifBlank { link.attr("href") }
+        val snippet = row.selectFirst(".contentRow-snippet")
+            ?.text()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+        return ThreadSummary(
+            threadId = XenForoUrls.threadId(href),
+            title = title,
+            url = XenForoUrls.absolute(href),
+            author = row.selectFirst(".contentRow-minor a[href*='/members/']")
+                ?.text()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() },
+            replyCount = null,
+            viewCount = null,
+            lastPoster = null,
+            lastPostTime = row.selectFirst(".contentRow-minor time, time")
+                ?.text()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() },
+            prefix = row.selectFirst(".contentRow-title .label")
+                ?.text()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() },
+            forumName = row.selectFirst(".contentRow-minor a[href*='/forums/']")
+                ?.text()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() },
+            isSticky = false,
+            isUnread = false,
+            snippet = snippet
+        )
+    }
 
     private fun stat(row: Element, label: String, fallbackIndex: Int): Int? {
         val byLabel = row.select(".structItem-cell--meta .pairs")

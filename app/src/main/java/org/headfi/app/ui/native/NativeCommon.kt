@@ -1,5 +1,8 @@
 package org.headfi.app.ui.native
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CloudOff
@@ -26,12 +31,14 @@ import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.RssFeed
 import androidx.compose.material.icons.outlined.VerifiedUser
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,25 +52,47 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import org.headfi.app.data.ContentResult
+import org.headfi.app.net.HeadFiUserAgent
 import org.headfi.app.net.xenforo.ThreadSummary
 
 /** UI state for one native screen. */
 sealed interface Loadable<out T> {
     data object Loading : Loadable<Nothing>
-    data class Ready<T>(val value: T) : Loadable<T>
+
+    /**
+     * [refreshing] is true while a background refresh is running with the old
+     * content still on screen. [refreshError] is set when that refresh failed;
+     * the previously loaded content stays readable behind a small banner.
+     */
+    data class Ready<T>(
+        val value: T,
+        val refreshing: Boolean = false,
+        val refreshError: String? = null
+    ) : Loadable<T>
     data class Verification(val url: String) : Loadable<Nothing>
     data class Error(val message: String) : Loadable<Nothing>
 }
 
+/** True while a refresh is running over already-loaded content. */
+val Loadable<*>.isRefreshing: Boolean
+    get() = (this as? Loadable.Ready<*>)?.refreshing == true
+
 /**
  * Runs [load] once per key (and again when [refreshToken] changes), mapping the
  * repository's result onto [Loadable].
+ *
+ * A refresh keeps the previous [Loadable.Ready] on screen (flagged as
+ * refreshing) instead of resetting to [Loadable.Loading]. That avoids a blank
+ * flash and, because the caller also owns its LazyListState, keeps the reader's
+ * scroll position.
  */
 @Composable
 fun <T> rememberContent(
@@ -71,16 +100,49 @@ fun <T> rememberContent(
     refreshToken: Int,
     load: suspend () -> ContentResult<T>
 ): Loadable<T> {
-    var state by remember(key, refreshToken) { mutableStateOf<Loadable<T>>(Loadable.Loading) }
+    var state by remember(key) { mutableStateOf<Loadable<T>>(Loadable.Loading) }
     LaunchedEffect(key, refreshToken) {
-        state = Loadable.Loading
+        val previous = state as? Loadable.Ready
+        state = if (previous != null) {
+            Loadable.Ready(previous.value, refreshing = true)
+        } else {
+            Loadable.Loading
+        }
         state = when (val result = load()) {
             is ContentResult.Ready -> Loadable.Ready(result.value)
             is ContentResult.NeedsVerification -> Loadable.Verification(result.url)
-            is ContentResult.Failed -> Loadable.Error(result.message)
+            is ContentResult.Failed ->
+                if (previous != null) {
+                    // Keep the readable page rather than replacing it with an
+                    // error; the banner explains that the refresh failed.
+                    Loadable.Ready(previous.value, refreshError = result.message)
+                } else {
+                    Loadable.Error(result.message)
+                }
         }
     }
     return state
+}
+
+/**
+ * Pull-to-refresh for a native screen. Material's box works here because its
+ * child is a Compose LazyColumn (unlike the WebView, which needed
+ * SwipeRefreshLayout — see HeadFiWebView).
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun NativePullToRefresh(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit
+) {
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier.fillMaxSize(),
+        content = content
+    )
 }
 
 /**
@@ -235,8 +297,11 @@ fun ErrorState(
 @Composable
 fun VerificationState(
     onVerify: () -> Unit,
+    url: String? = null,
+    onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -258,15 +323,64 @@ fun VerificationState(
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = "Head-Fi needs a browser check before it will show this page. " +
-                "Open it once in the browser view and the native screens will work again.",
+                "Open it once in the browser view and the native screens will work again. " +
+                "If the check does not clear there either, use Account & Settings → " +
+                "Session health & diagnostics.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onVerify) {
-            Icon(Icons.Outlined.Language, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Open in browser")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onVerify) {
+                Icon(Icons.Outlined.Language, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Open in browser")
+            }
+            if (onRetry != null) {
+                TextButton(onClick = onRetry) { Text("Retry") }
+            }
+        }
+        TextButton(
+            onClick = {
+                val diagnostics = buildString {
+                    appendLine("Head-Fi verification needed")
+                    appendLine("URL: ${url ?: "unknown"}")
+                    appendLine("User-Agent: ${HeadFiUserAgent.mobile(context)}")
+                    appendLine("Time: ${java.time.Instant.now()}")
+                }
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                clipboard?.setPrimaryClip(ClipData.newPlainText("Head-Fi diagnostics", diagnostics))
+            }
+        ) {
+            Text("Copy diagnostics")
+        }
+    }
+}
+
+/**
+ * A refresh failed while old content is still on screen. Shown as a thin banner
+ * above the list so the reader keeps what they were reading.
+ */
+@Composable
+fun RefreshErrorBanner(message: String, onRetry: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Couldn't refresh: $message",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onRetry) { Text("Retry") }
         }
     }
 }
@@ -372,6 +486,16 @@ fun ThreadRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
+        thread.snippet?.let { snippet ->
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = snippet,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
     HorizontalDivider(
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
@@ -452,8 +576,22 @@ fun PaginationRow(
     onFirst: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onLast: () -> Unit
+    onLast: () -> Unit,
+    pageCount: Int = 1,
+    currentPage: Int = 1,
+    onJumpToPage: ((Int) -> Unit)? = null
 ) {
+    var showJumpDialog by remember { mutableStateOf(false) }
+    var pageText by remember { mutableStateOf("") }
+
+    val submitPage = {
+        val page = pageText.toIntOrNull()?.coerceIn(1, pageCount)
+        if (page != null && onJumpToPage != null) {
+            onJumpToPage(page)
+            showJumpDialog = false
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -468,12 +606,55 @@ fun PaginationRow(
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
+            color = if (onJumpToPage != null && pageCount > 1) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            modifier = if (onJumpToPage != null && pageCount > 1) {
+                Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable {
+                        pageText = currentPage.coerceIn(1, pageCount.coerceAtLeast(1)).toString()
+                        showJumpDialog = true
+                    }
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            } else {
+                Modifier
+            }
         )
         TextButton(onClick = onNext, enabled = hasNext) { Text("Next") }
         IconButton(onClick = onLast, enabled = hasLast) {
             Icon(Icons.Outlined.LastPage, contentDescription = "Last page")
         }
+    }
+
+    if (showJumpDialog && onJumpToPage != null) {
+        AlertDialog(
+            onDismissRequest = { showJumpDialog = false },
+            title = { Text("Jump to page") },
+            text = {
+                OutlinedTextField(
+                    value = pageText,
+                    onValueChange = { value -> pageText = value.filter(Char::isDigit).take(5) },
+                    label = { Text("Page (1–$pageCount)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardActions = KeyboardActions(onDone = { submitPage() })
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = submitPage,
+                    enabled = pageText.toIntOrNull()?.let { it in 1..pageCount } == true
+                ) {
+                    Text("Go")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showJumpDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }

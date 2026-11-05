@@ -13,7 +13,11 @@ data class ThreadSummary(
     val prefix: String?,
     val forumName: String?,
     val isSticky: Boolean,
-    val isUnread: Boolean
+    val isUnread: Boolean,
+    /** `/threads/<slug>.<id>/unread`, when the row offers a first-unread route. */
+    val unreadUrl: String? = null,
+    /** Matched text shown on search results/alerts; null on ordinary thread lists. */
+    val snippet: String? = null
 )
 
 data class ThreadListPage(

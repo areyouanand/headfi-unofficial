@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
@@ -35,6 +36,7 @@ fun ForumsScreen(
     repository: ContentRepository,
     refreshToken: Int,
     canGoBack: Boolean,
+    listState: LazyListState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onOpenWeb: (String) -> Unit,
@@ -43,7 +45,9 @@ fun ForumsScreen(
     val url = XenForoUrls.BASE + "/forums/"
     val state = rememberContent(url, refreshToken) { repository.forums(url) }
 
+    NativePullToRefresh(isRefreshing = state.isRefreshing, onRefresh = onRefresh) {
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
@@ -62,6 +66,10 @@ fun ForumsScreen(
             )
         }
 
+        (state as? Loadable.Ready)?.refreshError?.let { message ->
+            item { RefreshErrorBanner(message, onRetry = onRefresh) }
+        }
+
         when (state) {
             is Loadable.Loading -> item { LoadingState("Loading forums…") }
 
@@ -74,7 +82,11 @@ fun ForumsScreen(
             }
 
             is Loadable.Verification -> item {
-                VerificationState(onVerify = { onOpenWeb(state.url) })
+                VerificationState(
+                    onVerify = { onOpenWeb(state.url) },
+                    url = state.url,
+                    onRetry = onRefresh
+                )
             }
 
             is Loadable.Ready -> state.value.forEach { category ->
@@ -88,6 +100,7 @@ fun ForumsScreen(
                 }
             }
         }
+    }
     }
 }
 

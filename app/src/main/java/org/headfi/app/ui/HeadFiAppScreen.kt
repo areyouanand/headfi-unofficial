@@ -124,6 +124,7 @@ import org.headfi.app.model.UserSessionState
 import org.headfi.app.ui.components.AccountAndSettingsSheet
 import org.headfi.app.ui.components.HeadFiWebView
 import org.headfi.app.ui.components.SearchHeadFiDialog
+import org.headfi.app.ui.components.SessionHealthDialog
 import org.headfi.app.ui.native.NativeContentHost
 import org.headfi.app.ui.native.NativeDestination
 import org.headfi.app.ui.native.NativeNavigator
@@ -153,6 +154,7 @@ fun HeadFiAppScreen(
 
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
+    var showSessionHealthDialog by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
     var longPressedImageUrl by remember { mutableStateOf<String?>(null) }
 
@@ -864,10 +866,23 @@ fun HeadFiAppScreen(
             onSiteLayoutChange = viewModel::setSiteLayout,
             onBottomBarItemsChange = viewModel::setBottomBarItems,
             onNativeReaderChange = viewModel::setNativeReaderEnabled,
+            onSessionHealthClick = {
+                showAccountSheet = false
+                showSessionHealthDialog = true
+            },
             onCheckUnreadNowClick = {
                 viewModel.checkUnreadNow()
                 Toast.makeText(context, "Checking Head-Fi for new activity…", Toast.LENGTH_SHORT).show()
             }
+        )
+    }
+
+    // Session health: the fastest way to tell "empty page" from "challenge".
+    if (showSessionHealthDialog) {
+        SessionHealthDialog(
+            session = sessionState,
+            repository = contentRepository,
+            onDismiss = { showSessionHealthDialog = false }
         )
     }
 

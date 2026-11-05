@@ -25,6 +25,14 @@ import org.json.JSONObject
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "headfi_prefs")
 
+/**
+ * Session secrets live in their own DataStore so they can be excluded from
+ * cloud backup and device transfer (see res/xml/backup_rules.xml). Keeping them
+ * in the preferences file would upload the user's `xf_user` / `cf_clearance`
+ * cookies to Google Drive along with harmless settings.
+ */
+private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(name = "headfi_session")
+
 class SessionPreferencesRepository(private val context: Context) {
 
     private object Keys {
@@ -37,6 +45,7 @@ class SessionPreferencesRepository(private val context: Context) {
         val LAST_VISITED_URL = stringPreferencesKey("last_visited_url")
         val SAVED_USERNAME = stringPreferencesKey("saved_username")
         val SAVED_AVATAR_URL = stringPreferencesKey("saved_avatar_url")
+        /** Legacy location of the vault; migrated into [SessionKeys] on first use. */
         val COOKIE_BACKUP_JSON = stringPreferencesKey("cookie_backup_json")
         val UNREAD_NOTIFICATIONS = booleanPreferencesKey("unread_notifications")
         val POLL_INTERVAL = stringPreferencesKey("poll_interval")
@@ -47,6 +56,11 @@ class SessionPreferencesRepository(private val context: Context) {
         val NATIVE_READER = booleanPreferencesKey("native_reader")
         val LAST_NOTIFIED_ALERTS = intPreferencesKey("last_notified_alerts")
         val LAST_NOTIFIED_CONVERSATIONS = intPreferencesKey("last_notified_conversations")
+        val LAST_NOTIFIED_WATCHED = stringPreferencesKey("last_notified_watched")
+    }
+
+    private object SessionKeys {
+        val COOKIE_BACKUP_JSON = stringPreferencesKey("cookie_backup_json")
     }
 
     val preferencesFlow: Flow<AppPreferences> = context.dataStore.data.map { prefs ->
@@ -153,6 +167,22 @@ class SessionPreferencesRepository(private val context: Context) {
         }
     }
 
+    /** Watched-thread URLs that were unread at the last background poll. */
+    suspend fun lastNotifiedWatchedUrls(): Set<String> = runCatching {
+        val stored = context.dataStore.data.first()[Keys.LAST_NOTIFIED_WATCHED]
+            ?: return@runCatching emptySet()
+        val array = JSONArray(stored)
+        (0 until array.length()).mapNotNull { index ->
+            array.optString(index).takeIf { it.isNotBlank() }
+        }.toSet()
+    }.getOrDefault(emptySet())
+
+    suspend fun updateLastNotifiedWatchedUrls(urls: Set<String>) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.LAST_NOTIFIED_WATCHED] = JSONArray(urls.toList()).toString()
+        }
+    }
+
     suspend fun saveLastVisitedUrl(url: String) {
         if (url.startsWith("https://www.head-fi.org") || url.startsWith("https://head-fi.org")) {
             context.dataStore.edit { it[Keys.LAST_VISITED_URL] = url }
@@ -169,12 +199,29 @@ class SessionPreferencesRepository(private val context: Context) {
     }
 
     /**
+     * Moves a vault written by an older build out of `headfi_prefs` (which is
+     * backed up) and into the non-backed-up session store. Safe to call often.
+     */
+    private suspend fun migrateLegacyCookieVault() {
+        runCatching {
+            val legacy = context.dataStore.data.first()[Keys.COOKIE_BACKUP_JSON] ?: return
+            context.sessionDataStore.edit { prefs ->
+                if (prefs[SessionKeys.COOKIE_BACKUP_JSON].isNullOrBlank()) {
+                    prefs[SessionKeys.COOKIE_BACKUP_JSON] = legacy
+                }
+            }
+            context.dataStore.edit { it.remove(Keys.COOKIE_BACKUP_JSON) }
+        }
+    }
+
+    /**
      * Flushes Android WebView's CookieManager to SQLite disk and backs up critical
      * Head-Fi XenForo authentication cookies (`xf_user`, `xf_session`, `xf_csrf`, `xf_tfa_trust`)
      * to DataStore with persistent expiration so login survives app restarts and device reboots.
      */
     suspend fun syncAndBackupCookies() = withContext(Dispatchers.IO) {
         runCatching {
+            migrateLegacyCookieVault()
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
             cookieManager.flush()
@@ -208,8 +255,8 @@ class SessionPreferencesRepository(private val context: Context) {
             }
 
             if (hasXfUser && backupArray.length() > 0) {
-                context.dataStore.edit { prefs ->
-                    prefs[Keys.COOKIE_BACKUP_JSON] = backupArray.toString()
+                context.sessionDataStore.edit { prefs ->
+                    prefs[SessionKeys.COOKIE_BACKUP_JSON] = backupArray.toString()
                 }
             }
         }
@@ -226,12 +273,14 @@ class SessionPreferencesRepository(private val context: Context) {
 
             val currentCookies = cookieManager.getCookie("https://www.head-fi.org").orEmpty()
             if (currentCookies.contains("xf_user=")) {
+                migrateLegacyCookieVault()
                 cookieManager.flush()
                 return@withContext true
             }
 
-            val prefs = context.dataStore.data.first()
-            val backupJson = prefs[Keys.COOKIE_BACKUP_JSON] ?: return@withContext false
+            migrateLegacyCookieVault()
+            val prefs = context.sessionDataStore.data.first()
+            val backupJson = prefs[SessionKeys.COOKIE_BACKUP_JSON] ?: return@withContext false
             val array = JSONArray(backupJson)
             if (array.length() == 0) return@withContext false
 
@@ -266,12 +315,13 @@ class SessionPreferencesRepository(private val context: Context) {
      */
     suspend fun cookieHeader(): String? = withContext(Dispatchers.IO) {
         runCatching {
+            migrateLegacyCookieVault()
             CookieManager.getInstance().getCookie("https://www.head-fi.org")
                 ?.takeIf { it.contains("xf_user=") }
                 ?.let { return@runCatching it }
 
-            val prefs = context.dataStore.data.first()
-            val backupJson = prefs[Keys.COOKIE_BACKUP_JSON] ?: return@runCatching null
+            val prefs = context.sessionDataStore.data.first()
+            val backupJson = prefs[SessionKeys.COOKIE_BACKUP_JSON] ?: return@runCatching null
             val array = JSONArray(backupJson)
 
             val names = LinkedHashSet<String>()
@@ -295,15 +345,32 @@ class SessionPreferencesRepository(private val context: Context) {
     /** True when a persistent (`xf_user`) session has been backed up. */
     suspend fun hasStoredSession(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
+            migrateLegacyCookieVault()
             if (CookieManager.getInstance()
                     .getCookie("https://www.head-fi.org")
                     ?.contains("xf_user=") == true
             ) {
                 return@runCatching true
             }
-            val prefs = context.dataStore.data.first()
-            prefs[Keys.COOKIE_BACKUP_JSON]?.contains("\"xf_user\"") == true
+            migrateLegacyCookieVault()
+            val prefs = context.sessionDataStore.data.first()
+            prefs[SessionKeys.COOKIE_BACKUP_JSON]?.contains("\"xf_user\"") == true
         }.getOrDefault(false)
+    }
+
+    /** Cookie names held in the session vault, for the Session health screen. */
+    suspend fun cookieNames(): List<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            migrateLegacyCookieVault()
+            val json = context.sessionDataStore.data.first()[SessionKeys.COOKIE_BACKUP_JSON]
+                ?: return@runCatching emptyList()
+            val array = JSONArray(json)
+            (0 until array.length()).mapNotNull { index ->
+                array.getJSONObject(index)
+                    .optString("name")
+                    .takeIf { it.isNotBlank() }
+            }.distinct()
+        }.getOrDefault(emptyList())
     }
 
     /**
@@ -314,6 +381,9 @@ class SessionPreferencesRepository(private val context: Context) {
             val cookieManager = CookieManager.getInstance()
             cookieManager.removeAllCookies(null)
             cookieManager.flush()
+            context.sessionDataStore.edit { prefs ->
+                prefs.remove(SessionKeys.COOKIE_BACKUP_JSON)
+            }
             context.dataStore.edit { prefs ->
                 prefs.remove(Keys.COOKIE_BACKUP_JSON)
                 prefs.remove(Keys.SAVED_USERNAME)

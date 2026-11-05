@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.headfi.app.data.ContentRepository
+import org.headfi.app.net.xenforo.XenForoUrls
 
 @Composable
 fun AlertsScreen(
@@ -35,6 +37,7 @@ fun AlertsScreen(
     repository: ContentRepository,
     refreshToken: Int,
     canGoBack: Boolean,
+    listState: LazyListState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onOpenWeb: (String) -> Unit,
@@ -44,7 +47,9 @@ fun AlertsScreen(
         repository.alerts(destination.url)
     }
 
+    NativePullToRefresh(isRefreshing = state.isRefreshing, onRefresh = onRefresh) {
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
@@ -65,6 +70,10 @@ fun AlertsScreen(
             )
         }
 
+        (state as? Loadable.Ready)?.refreshError?.let { message ->
+            item { RefreshErrorBanner(message, onRetry = onRefresh) }
+        }
+
         when (state) {
             is Loadable.Loading -> item { LoadingState("Loading alerts…") }
 
@@ -77,7 +86,11 @@ fun AlertsScreen(
             }
 
             is Loadable.Verification -> item {
-                VerificationState(onVerify = { onOpenWeb(state.url) })
+                VerificationState(
+                    onVerify = { onOpenWeb(state.url) },
+                    url = state.url,
+                    onRetry = onRefresh
+                )
             }
 
             is Loadable.Ready -> {
@@ -159,11 +172,17 @@ fun AlertsScreen(
                             onFirst = { page.pageNav.firstUrl?.let(onOpenUrl) },
                             onPrevious = { page.pageNav.previousUrl?.let(onOpenUrl) },
                             onNext = { page.pageNav.nextUrl?.let(onOpenUrl) },
-                            onLast = { page.pageNav.lastUrl?.let(onOpenUrl) }
+                            onLast = { page.pageNav.lastUrl?.let(onOpenUrl) },
+                            pageCount = page.pageNav.pageCount,
+                            currentPage = page.pageNav.currentPage,
+                            onJumpToPage = { target ->
+                                onOpenUrl(XenForoUrls.pageUrl(destination.url, target))
+                            }
                         )
                     }
                 }
             }
         }
+    }
     }
 }

@@ -66,6 +66,12 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        // JVM parser tests never touch Android APIs; this keeps a stray Log call
+        // in an error path from failing the run with "not mocked".
+        unitTests.isReturnDefaultValues = true
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

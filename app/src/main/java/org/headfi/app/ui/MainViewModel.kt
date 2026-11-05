@@ -78,7 +78,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val restored = repository.restoreCookiesIfNeeded()
             val hasCookie = restored || repository.hasRememberMeCookie()
-            _sessionState.update { it.copy(hasRememberMeCookie = hasCookie) }
+            val (savedName, savedAvatar) = repository.savedUserFlow.first()
+            _sessionState.update {
+                it.copy(
+                    hasRememberMeCookie = hasCookie,
+                    username = it.username.ifBlank { savedName },
+                    avatarUrl = it.avatarUrl.ifBlank { savedAvatar }
+                )
+            }
             _isSessionReady.value = true
         }
     }
@@ -146,10 +153,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (unreadConversations == 0) {
                 HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_CONVERSATIONS)
             }
+            if (unreadAlerts == 0 && unreadConversations == 0) {
+                HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_SUMMARY)
+            }
+            val (savedName, savedAvatar) = repository.savedUserFlow.first()
             _sessionState.value = UserSessionState(
                 isLoggedIn = isLoggedIn,
-                username = username,
-                avatarUrl = avatarUrl,
+                username = username.ifBlank { savedName },
+                avatarUrl = avatarUrl.ifBlank { savedAvatar },
                 unreadAlerts = unreadAlerts,
                 unreadConversations = unreadConversations,
                 hasRememberMeCookie = repository.hasRememberMeCookie()
@@ -169,8 +180,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Signing out again should bring the sign-in prompt back.
             repository.setSignInPromptDismissed(false)
             repository.updateLastNotified(0, 0)
+            repository.updateLastNotifiedWatchedUrls(emptySet())
             HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_ALERTS)
             HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_CONVERSATIONS)
+            HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_WATCHED)
+            HeadFiNotifications.clear(getApplication(), HeadFiNotifications.ID_SUMMARY)
             _sessionState.value = UserSessionState(hasRememberMeCookie = false)
             onComplete()
         }

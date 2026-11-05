@@ -3,12 +3,14 @@ package org.headfi.app.ui.native
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.headfi.app.data.ContentRepository
 import org.headfi.app.net.xenforo.ThreadSummary
+import org.headfi.app.net.xenforo.XenForoUrls
 
 @Composable
 fun ThreadListScreen(
@@ -16,6 +18,7 @@ fun ThreadListScreen(
     repository: ContentRepository,
     refreshToken: Int,
     canGoBack: Boolean,
+    listState: LazyListState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onOpenWeb: (String) -> Unit,
@@ -30,7 +33,9 @@ fun ThreadListScreen(
         ready?.value?.title ?: "Threads"
     }
 
+    NativePullToRefresh(isRefreshing = state.isRefreshing, onRefresh = onRefresh) {
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
@@ -42,13 +47,18 @@ fun ThreadListScreen(
                     if (page.isPartial) {
                         "$count latest threads · summary"
                     } else {
-                        "$count thread${if (count == 1) "" else "s"} · page ${page.pageNav.currentPage}"
+                        val noun = if (destination.url.contains("/search/")) "result" else "thread"
+                        "$count $noun${if (count == 1) "" else "s"} · page ${page.pageNav.currentPage}"
                     }
                 },
                 onBack = if (canGoBack) onBack else null,
                 onRefresh = onRefresh,
                 onOpenBrowser = { onOpenWeb(destination.url) }
             )
+        }
+
+        ready?.refreshError?.let { message ->
+            item { RefreshErrorBanner(message, onRetry = onRefresh) }
         }
 
         if (ready?.value?.isPartial == true) {
@@ -69,7 +79,11 @@ fun ThreadListScreen(
             }
 
             is Loadable.Verification -> item {
-                VerificationState(onVerify = { onOpenWeb(state.url) })
+                VerificationState(
+                    onVerify = { onOpenWeb(state.url) },
+                    url = state.url,
+                    onRetry = onRefresh
+                )
             }
 
             is Loadable.Ready -> {
@@ -113,11 +127,22 @@ fun ThreadListScreen(
                                 page.pageNav.lastUrl?.let {
                                     onOpenDestination(NativeDestination.ThreadList(it, destination.title))
                                 }
+                            },
+                            pageCount = page.pageNav.pageCount,
+                            currentPage = page.pageNav.currentPage,
+                            onJumpToPage = { target ->
+                                onOpenDestination(
+                                    NativeDestination.ThreadList(
+                                        XenForoUrls.pageUrl(destination.url, target),
+                                        destination.title
+                                    )
+                                )
                             }
                         )
                     }
                 }
             }
         }
+    }
     }
 }

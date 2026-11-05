@@ -8,7 +8,11 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.flow.first
 import org.headfi.app.data.SessionPreferencesRepository
+import org.headfi.app.net.HeadFiContentClient
 import org.headfi.app.net.HeadFiUserAgent
+import org.headfi.app.net.PagePayload
+import org.headfi.app.net.xenforo.ThreadListParser
+import org.headfi.app.net.xenforo.ThreadSummary
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -30,6 +34,7 @@ class UnreadPollWorker(
     companion object {
         private const val TAG = "HeadFiUnreadPoll"
         private const val POLL_URL = "https://www.head-fi.org/"
+        private const val WATCHED_URL = "https://www.head-fi.org/watched/threads"
         const val INPUT_MANUAL = "manual"
 
         /** Enough to cover `XF.config`, which lives in the document head. */
@@ -73,19 +78,27 @@ class UnreadPollWorker(
 
         val (lastAlerts, lastConversations) = repository.lastNotifiedCounts()
 
+        // A stale summary from an earlier run would otherwise outlive the
+        // children it was summarising.
+        HeadFiNotifications.clear(applicationContext, HeadFiNotifications.ID_SUMMARY)
+        var posted = 0
+
         counts.alerts?.let { alerts ->
             when {
-                alerts > lastAlerts && alerts > 0 -> HeadFiNotifications.notifyUnread(
-                    context = applicationContext,
-                    notificationId = HeadFiNotifications.ID_ALERTS,
-                    title = if (alerts == 1) "New Head-Fi alert" else "New Head-Fi alerts",
-                    body = if (alerts == 1) {
-                        "You have 1 unread alert on Head-Fi."
-                    } else {
-                        "You have $alerts unread alerts on Head-Fi."
-                    },
-                    deepLinkUrl = "https://www.head-fi.org/account/alerts"
-                )
+                alerts > lastAlerts && alerts > 0 -> {
+                    HeadFiNotifications.notifyUnread(
+                        context = applicationContext,
+                        notificationId = HeadFiNotifications.ID_ALERTS,
+                        title = if (alerts == 1) "New Head-Fi alert" else "New Head-Fi alerts",
+                        body = if (alerts == 1) {
+                            "You have 1 unread alert on Head-Fi."
+                        } else {
+                            "You have $alerts unread alerts on Head-Fi."
+                        },
+                        deepLinkUrl = "https://www.head-fi.org/account/alerts"
+                    )
+                    posted++
+                }
 
                 alerts == 0 -> HeadFiNotifications.clear(
                     applicationContext,
@@ -96,7 +109,7 @@ class UnreadPollWorker(
 
         counts.conversations?.let { conversations ->
             when {
-                conversations > lastConversations && conversations > 0 ->
+                conversations > lastConversations && conversations > 0 -> {
                     HeadFiNotifications.notifyUnread(
                         context = applicationContext,
                         notificationId = HeadFiNotifications.ID_CONVERSATIONS,
@@ -112,6 +125,8 @@ class UnreadPollWorker(
                         },
                         deepLinkUrl = "https://www.head-fi.org/conversations/"
                     )
+                    posted++
+                }
 
                 conversations == 0 -> HeadFiNotifications.clear(
                     applicationContext,
@@ -120,8 +135,72 @@ class UnreadPollWorker(
             }
         }
 
+        // Per-thread watched notifications: the global counts above cannot tell
+        // the user *which* thread got a reply, so this reads the watched list.
+        // A null result means "unknown" (challenge, network, markup) and must not
+        // clear the existing notification.
+        val watchedUnread = runCatching { fetchWatchedUnread(repository) }
+            .onFailure { Log.w(TAG, "Watched-thread poll failed", it) }
+            .getOrNull()
+
+        watchedUnread?.let { threads ->
+            val current = threads.map { it.url }.toSet()
+            val previous = repository.lastNotifiedWatchedUrls()
+            val fresh = threads.filter { it.url !in previous }
+
+            when {
+                fresh.isNotEmpty() -> {
+                    val titles = fresh.take(3).joinToString("\n") { it.title }
+                    val body = if (fresh.size > 3) {
+                        "$titles\n…and ${fresh.size - 3} more"
+                    } else {
+                        titles
+                    }
+                    HeadFiNotifications.notifyUnread(
+                        context = applicationContext,
+                        notificationId = HeadFiNotifications.ID_WATCHED,
+                        title = if (fresh.size == 1) {
+                            "New reply in a watched thread"
+                        } else {
+                            "New replies in ${fresh.size} watched threads"
+                        },
+                        body = body,
+                        deepLinkUrl = WATCHED_URL
+                    )
+                    posted++
+                }
+
+                current.isEmpty() -> HeadFiNotifications.clear(
+                    applicationContext,
+                    HeadFiNotifications.ID_WATCHED
+                )
+            }
+
+            repository.updateLastNotifiedWatchedUrls(current)
+        }
+
+        if (posted >= 2) {
+            HeadFiNotifications.notifySummary(applicationContext, posted)
+        }
+
         repository.updateLastNotified(counts.alerts, counts.conversations)
         return Result.success()
+    }
+
+    /**
+     * The unread threads in `/watched/threads`, or null when the page could not
+     * be read (challenge, network, markup drift).
+     */
+    private suspend fun fetchWatchedUnread(
+        repository: SessionPreferencesRepository
+    ): List<ThreadSummary>? {
+        val client = HeadFiContentClient(applicationContext, repository)
+        val payload = client.get(WATCHED_URL)
+        val html = (payload as? PagePayload.Html)?.html ?: return null
+        return runCatching { ThreadListParser.parse(html, WATCHED_URL) }
+            .getOrNull()
+            ?.threads
+            ?.filter { it.isUnread }
     }
 
     private fun fetchUnreadCounts(cookieHeader: String): UnreadCounts {

@@ -3,9 +3,12 @@
     <cloud-backup>
         <include domain="sharedpref" path="." />
         <include domain="file" path="datastore/" />
+        <!-- The session vault is deliberately excluded from cloud backup. -->
+        <exclude domain="file" path="datastore/headfi_session.preferences_pb" />
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="." />
         <include domain="file" path="datastore/" />
+        <exclude domain="file" path="datastore/headfi_session.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>

@@ -66,6 +66,11 @@ fun HeadFiWebView(
     // CSS re-injection (the AndroidView factory only runs once).
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
+    // While Cloudflare's challenge page is on screen, the ad blocker must not
+    // touch any request: the widget's own error text blames privacy tools, and
+    // one wrongly-blocked subresource can leave a fresh install stranded.
+    val onChallengePage = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+
     // Scroll offset to restore after a layout switch reloads the page.
     var pendingScrollRestore by remember { mutableStateOf<Int?>(null) }
 
@@ -248,7 +253,9 @@ fun HeadFiWebView(
                         if (!loadImages && isImageRequest(request)) {
                             return AdBlockEngine.emptyResponse()
                         }
-                        if (AdBlockEngine.shouldBlockRequest(request, adBlockerEnabled)) {
+                        if (!onChallengePage.get() &&
+                            AdBlockEngine.shouldBlockRequest(request, adBlockerEnabled)
+                        ) {
                             return AdBlockEngine.emptyResponse()
                         }
                         return super.shouldInterceptRequest(view, request)
@@ -282,6 +289,7 @@ fun HeadFiWebView(
 
                     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
+                        onChallengePage.set(url?.contains(CHALLENGE_PATH) == true)
                         reportLoadingState(true)
                         onNetworkError(null)
                         if (!url.isNullOrBlank()) {

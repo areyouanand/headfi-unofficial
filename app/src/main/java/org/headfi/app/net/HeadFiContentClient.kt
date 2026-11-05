@@ -22,14 +22,14 @@ import java.io.IOException
 class HeadFiContentClient(
     context: Context,
     private val repository: SessionPreferencesRepository
-) {
+) : ContentFetcher {
 
     private val appContext = context.applicationContext
     private val client = HeadFiHttpClient.get(appContext)
 
-    suspend fun get(
+    override suspend fun get(
         url: String,
-        headers: Map<String, String> = emptyMap()
+        headers: Map<String, String>
     ): PagePayload = withContext(Dispatchers.IO) {
         val request = try {
             newBuilder(url, headers).get().build()
@@ -38,31 +38,60 @@ class HeadFiContentClient(
         }
 
         try {
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                val finalUrl = response.request.url.toString()
-
-                when {
-                    !response.isSuccessful -> PagePayload.Unavailable(
-                        url = finalUrl,
-                        reason = "HTTP ${response.code}",
-                        statusCode = response.code
-                    )
-
-                    XenForoMarkup.isChallengePage(body, finalUrl) ->
-                        PagePayload.NeedsVerification(finalUrl)
-
-                    body.isBlank() -> PagePayload.Unavailable(finalUrl, "Empty response body")
-
-                    else -> PagePayload.Html(
-                        url = finalUrl,
-                        html = body,
-                        meta = XenForoMarkup.meta(body)
-                    )
-                }
-            }
+            execute(request)
         } catch (e: IOException) {
-            PagePayload.Unavailable(url, "Network error: ${e.message}")
+            // Offline: the OkHttp cache already holds pages this device has read.
+            // Authenticated XenForo responses are `private, max-age=0`, so a
+            // normal revalidation fails without a network; `only-if-cached` plus
+            // max-stale lets the reader keep reading what was already fetched.
+            val cachedRequest = runCatching {
+                newBuilder(
+                    url,
+                    headers + (
+                        "Cache-Control" to
+                            "only-if-cached, max-stale=$OFFLINE_MAX_STALE_SECONDS"
+                        )
+                ).get().build()
+            }.getOrNull()
+
+            val cached = cachedRequest
+                ?.let { request -> runCatching { execute(request) }.getOrNull() }
+
+            if (cached is PagePayload.Html) {
+                cached
+            } else {
+                PagePayload.Unavailable(url, "Network error: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Performs one GET and classifies the body before any parser sees it.
+     * Shared by the live request and the offline cache fallback.
+     */
+    private fun execute(request: okhttp3.Request): PagePayload {
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            val finalUrl = response.request.url.toString()
+
+            return when {
+                !response.isSuccessful -> PagePayload.Unavailable(
+                    url = finalUrl,
+                    reason = "HTTP ${response.code}",
+                    statusCode = response.code
+                )
+
+                XenForoMarkup.isChallengePage(body, finalUrl) ->
+                    PagePayload.NeedsVerification(finalUrl)
+
+                body.isBlank() -> PagePayload.Unavailable(finalUrl, "Empty response body")
+
+                else -> PagePayload.Html(
+                    url = finalUrl,
+                    html = body,
+                    meta = XenForoMarkup.meta(body)
+                )
+            }
         }
     }
 
@@ -73,7 +102,7 @@ class HeadFiContentClient(
      * can be checked on a real device via logcat, without any UI (automated UI
      * inspection is unavailable on the target phone — see HANDOFF.md).
      */
-    suspend fun probe(): String = when (val payload = forumsIndex()) {
+    override suspend fun probe(): String = when (val payload = forumsIndex()) {
         is PagePayload.Html -> {
             val parsed = runCatching { ForumsIndexParser.parse(payload.html) }
                 .fold(
@@ -122,7 +151,7 @@ class HeadFiContentClient(
      * rejection, and so is being bounced to the login page because the session
      * expired. Callers fall back to the WebView instead of pretending it worked.
      */
-    suspend fun postForm(
+    override suspend fun postForm(
         url: String,
         fields: Map<String, String>
     ): Boolean = withContext(Dispatchers.IO) {
@@ -169,6 +198,7 @@ class HeadFiContentClient(
     private companion object {
         const val TAG = "HeadFiReact"
         const val URL_FORUMS_INDEX = "https://www.head-fi.org/forums/"
+        const val OFFLINE_MAX_STALE_SECONDS = 7L * 24 * 60 * 60
         const val ACCEPT_HTML =
             "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     }

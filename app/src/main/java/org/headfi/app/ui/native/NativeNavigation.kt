@@ -79,6 +79,11 @@ fun nativeDestinationFor(url: String): NativeDestination? {
         path.startsWith("/search/") ->
             NativeDestination.ThreadList(url, "Search results")
 
+        // Search results link straight to a post; XenForo redirects that to its
+        // thread, which the native reader can parse. Keeps search useful without
+        // needing the thread URL up front.
+        path.startsWith("/posts/") -> NativeDestination.Thread(url, "Thread")
+
         else -> null
     }
 }

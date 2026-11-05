@@ -7,6 +7,9 @@ object XenForoUrls {
 
     const val BASE = "https://www.head-fi.org"
 
+    /** Head-Fi's curated editorial front page (`hfh_homepage`). */
+    const val HOME = "$BASE/"
+
     private val THREAD_ID = Regex("""/threads/(?:[^/]+\.)?(\d+)(?:/|$)""")
     private val FORUM_ID = Regex("""/forums/(?:[^/]+\.)?(\d+)(?:/|$)""")
 
@@ -52,6 +55,42 @@ object XenForoUrls {
 
     /** `/threads/<slug>.<id>/watch` for the given thread URL. */
     fun watchUrl(threadUrl: String): String = threadAction(threadUrl, "watch")
+
+    /**
+     * XenForo's "first unread" route for a thread:
+     * `/threads/<slug>.<id>/unread`. Returns null for non-thread URLs.
+     */
+    fun firstUnreadUrl(threadUrl: String): String? {
+        val path = pathOf(threadUrl).trimEnd('/')
+        if (!path.startsWith("/threads/")) return null
+        val clean = path
+            .replace(Regex("""/page-\d+$"""), "")
+            .removeSuffix("/unread")
+        return "$BASE$clean/unread"
+    }
+
+    /**
+     * Builds the URL for an arbitrary page of a list.
+     *
+     * Query pagers (search) use `?page=N`; everything else uses `/page-N`, which
+     * is how XenForo renders forum, thread and alert pagination.
+     */
+    fun pageUrl(url: String, page: Int): String {
+        val target = page.coerceAtLeast(1)
+        val query = url.substringAfter('?', "")
+        if (query.isNotEmpty()) {
+            val base = url.substringBefore('?')
+            val params = query.split('&')
+                .filter { it.isNotBlank() && !it.startsWith("page=") }
+            val withPage = if (target <= 1) params else params + "page=$target"
+            return base + if (withPage.isEmpty()) "" else "?" + withPage.joinToString("&")
+        }
+
+        val clean = url.substringBefore('#').substringBefore('?')
+            .replace(Regex("""/page-\d+/?$"""), "/")
+            .trimEnd('/')
+        return if (target <= 1) "$clean/" else "$clean/page-$target"
+    }
 
     /**
      * XenForo's "Stop watching" posts `stop=1` to the same `/watch` route; there

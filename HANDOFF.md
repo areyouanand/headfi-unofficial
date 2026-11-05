@@ -30,7 +30,7 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
    - On every page load and DOM mutation (including XenForo modal login overlays), injected JavaScript locates `input[name="remember"]` and forces `checked = true` so Head-Fi always issues the long-lived `xf_user` cookie.
 2. **Dual-Layer Cookie Persistence (`SessionPreferencesRepository.kt`)**:
    - **Layer 1 (Native SQLite Flush)**: `CookieManager.getInstance().flush()` is called after every `onPageFinished`, as well as in `MainActivity.onPause()` and `MainActivity.onStop()`.
-   - **Layer 2 (DataStore Vault Backup & Cold-Boot Restore)**: Whenever `xf_user` is present, `syncAndBackupCookies()` serializes `xf_*` and `cf_*` cookies into `DataStore` (`headfi_prefs`). On cold boot (after a device reboot), `MainActivity` holds the splash screen until `restoreCookiesIfNeeded()` verifies `CookieManager` and re-injects any missing cookies with `Domain=.head-fi.org; Path=/; Max-Age=31536000; Secure; SameSite=Lax`.
+   - **Layer 2 (DataStore Vault Backup & Cold-Boot Restore)**: Whenever `xf_user` is present, `syncAndBackupCookies()` serializes `xf_*` and `cf_*` cookies into a dedicated `headfi_session` DataStore. On cold boot (after a device reboot), `MainActivity` holds the splash screen until `restoreCookiesIfNeeded()` verifies `CookieManager` and re-injects any missing cookies with `Domain=.head-fi.org; Path=/; Max-Age=31536000; Secure; SameSite=Lax`. **The session store is excluded from cloud backup and device transfer** in `backup_rules.xml` / `data_extraction_rules.xml`; the vault is migrated out of the old `headfi_prefs` file on first use, so upgrading users also stop uploading their session. Preferences remain backed up.
 3. **Live XenForo Session Bridge (`HeadFiJsBridge.kt`)**:
    - Exposes `window.HeadFiBridge.onXenForoStateDetected(...)` to read `data-logged-in`, username, avatar URL, unread alerts (`XF.config.visitorCounts.alerts_unviewed`), and unread conversations (`conversations_unread`) into the Material 3 TopAppBar and Account Sheet.
 
@@ -72,6 +72,7 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
 - **Cloudflare Turnstile Compatibility (`HeadFiWebView.kt`)**:
   - Strips `; wv` and `Version/X.X` tokens from the WebView `userAgentString` so Cloudflare Turnstile challenges and login flows treat the client as standard Chrome Mobile.
   - `AdBlockEngine.kt` explicitly allowlists `challenges.cloudflare.com`, `cloudflare.com`, and `cdn.head-fi.org` while blocking 30+ third-party ad/tracker domains.
+  - While the WebView is on `/bot/challenge`, `shouldInterceptRequest` bypasses the ad blocker entirely. The challenge widget's own error text blames privacy tools, and one wrongly-blocked subresource can strand a fresh install, so the blocker steps aside for the duration of the challenge (tracked by an `AtomicBoolean` set in `onPageStarted`).
    - `TurnstileChallengeWatcher` (`HeadFiWebView.kt`) polls for `cf_clearance` while the page is on `/bot/challenge` (up to 3 minutes, every 2 seconds) and reloads the home page once the cookie appears. It is capped at 2 reloads.
 - **File Uploads (`MainActivity.kt`)**:
   - Implements `WebChromeClient.onShowFileChooser` with `ActivityResultContracts.StartActivityForResult` supporting single and multiple photo selection (`EXTRA_ALLOW_MULTIPLE`) for forum attachments and Classifieds listings.
@@ -101,6 +102,9 @@ Head-Fi runs on **XenForo 2.3** behind **Cloudflare Turnstile**. A user's long-t
 - **Permissions**: `POST_NOTIFICATIONS` is requested at runtime on Android 13+ when the user enables the feature; the worker also checks `areNotificationsEnabled()` before posting.
 - **Opt-in UI**: `AccountAndSettingsSheet.kt` exposes the toggle plus frequency chips (15 min / 30 min / hourly / 3 hours — WorkManager enforces a 15 minute floor). A **Check now** button runs one poll immediately (`UnreadPollScheduler.checkNow`, unique one-time work with `manual=true` input).
 - **Foreground suppression:** `UnreadPollWorker` checks `ProcessLifecycleOwner` and skips posting notifications while the app is on screen. `lastNotified` is left unchanged, so anything still unread is announced once the app is backgrounded. Manual checks always notify.
+- **Watched-thread notifications:** each poll also reads `/watched/threads`, parses it with `ThreadListParser`, and notifies about threads that are unread *and* were not unread at the previous run. Unknown results (challenge/network/markup) are ignored rather than treated as "nothing unread". The set of unread URLs is stored in `LAST_NOTIFIED_WATCHED`; sign-out clears it. This is what makes the notification name the thread, which global alert counts cannot do.
+- **Grouping:** unread notifications share `GROUP_UNREAD`. When a run posts two or more, `notifySummary()` adds a group summary (ID 1000) so Android shows one "New activity on Head-Fi" stack instead of unrelated notifications. The summary is cleared at the start of every run so it cannot outlive its children.
+- **Session health (Settings → Account card):** `SessionHealthDialog` shows signed-in state, the cookie names in the vault, the exact User-Agent, and the result of a live `GET /forums/` probe. It exists because an expired `cf_clearance` otherwise looks like an empty forum; "Copy diagnostics" puts the same facts on the clipboard.
 
 ### F. Native Content Layer (forums, threads, alerts)
 The app still ships a WebView, but reading no longer depends on it. Forums, thread
@@ -190,6 +194,35 @@ fetched over HTTP and rendered as Compose screens.
   position. Reacted state is read back from `.reactionsBar .reactionsBar-link`
   containing "You". Quote/Reply open XenForo's editor with the quote prefilled;
   Share uses the Android share sheet with the post permalink.
+- **Native reading polish** — lists and threads support **pull-to-refresh**
+  (`NativePullToRefresh`; Material's `PullToRefreshBox` is fine for Compose
+  `LazyColumn`s, unlike the WebView case in D). A refresh keeps the previous
+  `Loadable.Ready` value on screen with `refreshing = true` instead of resetting
+  to `Loading`, so the list does not blank or jump. `NativeContentHost` keeps one
+  `LazyListState` per destination URL, so Back from a thread returns the list to
+  where it was. Unread rows carry `unreadUrl` (parsed from an `/unread` link or
+  synthesized as `/threads/<slug>.<id>/unread`), and tapping one opens the first
+  unread post, like XenForo. The pager label opens a **jump-to-page** dialog, and
+  `XenForoUrls.pageUrl()` handles both `/page-N` and query-style (`?page=N`)
+  pagers. Native post images open an in-app `ImageViewerDialog` (pinch-zoom,
+  save, share, open externally) rather than leaving for the browser. Error copy
+  no longer leaks raw `HTTP n` / parser messages; the details go to logcat.
+- **Offline fallback** — when a live GET fails with an `IOException`,
+  `HeadFiContentClient` retries the same URL with
+  `Cache-Control: only-if-cached, max-stale=604800`. Authenticated XenForo pages
+  are `private, max-age=0`, so the regular cache would revalidate and fail
+  offline; this serves the copy already fetched (up to a week old) if the app
+  has read that page before. A cached challenge/login page is never returned —
+  only parsed HTML reaches the screens.
+- **Home front page (`HomeFeedParser`)** — Home renders Head-Fi's curated
+  `hfh_homepage` grid natively: a hero card plus image/title/excerpt rows from
+  `#hfh_grid_container .hfh_slot_container`. The image is a CSS
+  `background-image` on `a.hfh_slot_background`, so it is read from the inline
+  style rather than an `<img>`. Thread cards open natively (at their unread
+  route); reviews, showcase and article cards hand off to the WebView. If the
+  grid is missing or the session needs verification, the rest of Home still
+  loads and a compact notice offers the browser instead. `ContentRepository.homeFeed()`
+  exposes it; the first card is the hero, the rest are compact rows.
 - **Debug probe** — debug builds `GET /forums/` once at startup and log a
   one-line classification + parse summary under the `HeadFiContent` logcat tag.
   Useful on a device where automated UI inspection is unavailable; never runs in
@@ -219,9 +252,41 @@ fetched over HTTP and rendered as Compose screens.
 - **Also fixed during this pass:** from the browser view with no WebView history,
   Back exited the app instead of returning to the native screen. `BackHandler` is
   now enabled whenever a web URL is showing.
-- **Still unverified:** Alerts list, search results, Showcase / Classifieds
-  hand-off, and reaction *removal* (tapping a reacted post re-sends the same
-  reaction id; XenForo's toggle behaviour there is unconfirmed).
+- **Verified on device (2026-11-05, CPH2841 / Android 17, 1.7.0-dev):** installed
+  over 1.6.0-beta.3 (code 30) with data intact. Native Home loaded the live RSS
+  feed and the new curated front page (hero + image rows); a hero card opened the
+  MOONDROP thread natively, a review card handed off to the Showcase page, and
+  pull-to-refresh kept the content visible while refreshing. The saved username
+  now renders ("Signed in as areyouanand") instead of "your account". From
+  Forums → Portable Headphones, tapping an unread thread opened **page 9057 of
+  9086** (first unread, not page 1); the pager label opened the **Jump to page**
+  dialog, and an image in a thread opened the new in-app pinch-zoom viewer with
+  save/share/browser/close. Logcat `HeadFiDump` confirmed the front page arrived
+  as `hfh_homepage` (18 cards). The temporary homepage-dump scaffolding was
+  removed after capturing the markup.
+- **Alerts and Search were broken on live 2.3 markup and are now fixed and
+  verified on device (2026-11-05):**
+  - **Alerts** — the live page no longer has `.contentRow-title`; each alert is
+    `li.alert` (carrying `is-unread`) with the sentence in `.contentRow-main`
+    and the target in `a.fauxBlockLink-blockLink`. `AlertsParser` now accepts
+    that shape (and the older one), reads the full sentence, resolves the post
+    permalink, and only treats a zero-row page as empty when the template really
+    is `account_alerts`. Live `/account/alerts` rendered 5 unread rows with
+    avatars and timestamps.
+  - **Search** — results are `.contentRow`, not `.structItem--thread`, so the
+    shared `ThreadListParser` returned "No thread rows found". It now falls back
+    to search rows, carries the matched `.contentRow-snippet` through
+    `ThreadSummary.snippet`, and `nativeDestinationFor` maps `/posts/<id>` to the
+    native thread reader. The in-app Search dialog and a direct
+    `/search/search?keywords=moondrop` link both rendered **25 results**, with
+    the subtitle now reading "25 results" rather than "25 threads".
+- **Still unverified:** Showcase / Classifieds hand-off, reaction *removal*
+  (tapping a reacted post re-sends the same reaction id; XenForo's toggle
+  behaviour there is unconfirmed), the watched notification parser actually
+  firing, notification grouping in the shade, Session health dialog, the offline
+  cache fallback, and the ad-blocker challenge bypass. The jump dialog's IME Done
+  action, the refresh-error banner, and the front-page failure notice are
+  compile/lint/test-verified only.
 
 ---
 
@@ -249,6 +314,7 @@ F:\AI stuff\HeadFi-Org\
         │   │   ├── ContentRepository.kt   # fetch + parse + short cache for native screens
         │   │   └── SessionPreferencesRepository.kt
         │   ├── net/
+        │   │   ├── ContentFetcher.kt      # interface ContentRepository depends on (test seam)
         │   │   ├── HeadFiContentClient.kt  # OkHttp fetch, classified into PagePayload
         │   │   ├── HeadFiHttpClient.kt     # shared OkHttp client + disk cache
         │   │   ├── HeadFiUserAgent.kt      # one UA for WebView, OkHttp, Coil, worker
@@ -257,9 +323,10 @@ F:\AI stuff\HeadFi-Org\
         │   │   └── xenforo/
         │   │       ├── Alerts.kt / AlertsParser.kt
         │   │       ├── ForumsIndex.kt / ForumsIndexParser.kt
+        │   │       ├── HomeFeed.kt / HomeFeedParser.kt  # curated front-page grid
         │   │       ├── PostBodyParser.kt   # bbWrapper -> paragraphs/quotes/images/spans
         │   │       ├── RssThreadListParser.kt  # public feeds: works pre-clearance
-        │   │       ├── ThreadList.kt / ThreadListParser.kt
+        │   │       ├── ThreadList.kt / ThreadListParser.kt  # forum lists + search rows
         │   │       ├── ThreadPosts.kt / ThreadPostsParser.kt
         │   │       ├── XenForoMarkup.kt    # challenge/login detection
         │   │       └── XenForoUrls.kt      # URL -> id helpers + pager
@@ -274,11 +341,13 @@ F:\AI stuff\HeadFi-Org\
         │   │   │   ├── AccountAndSettingsSheet.kt
         │   │   │   ├── HeadFiMonochromeLogoIcon.kt
         │   │   │   ├── HeadFiWebView.kt
-        │   │   │   └── SearchHeadFiDialog.kt
+        │   │   │   ├── SearchHeadFiDialog.kt
+        │   │   │   └── SessionHealthDialog.kt  # cookie/UA/live-probe diagnostics
         │   │   ├── native/
         │   │   │   ├── AlertsScreen.kt
         │   │   │   ├── ForumsScreen.kt
         │   │   │   ├── HomeScreen.kt
+        │   │   │   ├── ImageViewerDialog.kt  # pinch-zoom, save, share
         │   │   │   ├── NativeCommon.kt     # Loadable state, header, rows, avatar
         │   │   │   ├── NativeContentHost.kt
         │   │   │   ├── NativeNavigation.kt # destinations + back/forward stack
@@ -313,18 +382,25 @@ F:\AI stuff\HeadFi-Org\
                 ├── data_extraction_rules.xml
                 └── file_paths.xml
     └── src/test/                          # JVM-only; parsers take raw HTML
-        ├── java/org/headfi/app/net/xenforo/
-        │   ├── AlertsParserTest.kt
-        │   ├── ForumsIndexParserTest.kt
-        │   ├── RssThreadListParserTest.kt
-        │   ├── ThreadListParserTest.kt
-        │   ├── ThreadPostsParserTest.kt
-        │   └── XenForoMarkupTest.kt
+        ├── java/org/headfi/app/
+        │   ├── data/ContentRepositoryTest.kt  # fake ContentFetcher; cache + error mapping
+        │   └── net/xenforo/
+        │       ├── AlertsParserTest.kt
+        │       ├── ForumsIndexParserTest.kt
+        │       ├── HomeFeedParserTest.kt
+        │       ├── PostBodyParserTest.kt
+        │       ├── RssThreadListParserTest.kt
+        │       ├── ThreadListParserTest.kt
+        │       ├── ThreadPostsParserTest.kt
+        │       ├── XenForoMarkupTest.kt
+        │       └── XenForoUrlsTest.kt
         └── resources/fixtures/
             ├── alerts.html
             ├── challenge.html
             ├── forums_index.html
+            ├── home_page.html
             ├── rss_threads.xml
+            ├── search_results.html
             ├── thread_list.html
             └── thread_posts.html
 ```
@@ -352,13 +428,13 @@ F:\AI stuff\HeadFi-Org\
 - **Open risk — Cloudflare Turnstile does not auto-clear on a fresh profile.** A clean install lands on `/bot/challenge` and stays there; tapping the widget at several coordinates and waiting did not complete it. The user's own install carries a `cf_clearance` cookie so it passes, but if that cookie ever expires or app data is cleared, the app will sit on the challenge with no obvious way past it. This is untriaged and is the most likely next user-visible complaint.
 - **Verified on device (v1.5.0 release, via screenshots):** the bottom bar layout, labels and tab indicator.
 - **Still compile-verified only:** bottom bar customisation, ordering and persistence; the reconnect callback; the Turnstile challenge watcher; Check now; scroll restore on layout switch; foreground suppression; find-in-page; the offline banner; camera capture; and the live application of text zoom and Data Saver. The header hiding toggle is gone, so there is nothing left to verify there.
-- **Native content layer (section F) — verified how?** `.\gradlew.bat testDebugUnitTest` runs 26 JVM tests against captured-shape XenForo fixtures, and `assembleDebug`/`assembleRelease` both pass with R8 (confirmed the parsers, `ContentRepository`, `HeadFiContentClient` and the native screens survive shrinking in `mapping.txt`). What remains unverified is the real thing: whether Head-Fi's live markup matches those selectors, and whether `cf_clearance` obtained by the WebView is accepted by OkHttp. Run the debug build on a device and watch `adb logcat -s HeadFiContent` — it logs whether `/forums/` came back as HTML (with category/forum counts) or as a challenge page. If it is a challenge page even after opening the site in the browser view, the UA/cookie bridge is the first suspect.
+- **Native content layer (section F) — verified how?** `.\gradlew.bat testDebugUnitTest` runs 52 JVM tests against captured-shape XenForo fixtures (plus `ContentRepository` with a fake `ContentFetcher`, `PostBodyParser`, `HomeFeedParser`, `AlertsParser` and `XenForoUrls`), `.\gradlew.bat lintDebug` is clean, and `assembleDebug`/`assembleRelease` both pass with R8 (confirmed the parsers, `ContentRepository`, `HeadFiContentClient` and the native screens survive shrinking in `mapping.txt`). What remains unverified is the real thing: whether Head-Fi's live markup matches those selectors, and whether `cf_clearance` obtained by the WebView is accepted by OkHttp. Run the debug build on a device and watch `adb logcat -s HeadFiContent` — it logs whether `/forums/` came back as HTML (with category/forum counts) or as a challenge page. If it is a challenge page even after opening the site in the browser view, the UA/cookie bridge is the first suspect.
 - Note: `gradlew` (the Unix shell script) must keep its executable bit — it was briefly committed as `100644`, which broke a Linux CI run, and was fixed in `ee3b4b0`. Windows builds are unaffected either way, so this is easy to regress by accident on a Windows checkout.
 
 ### Release & Versioning (v1.6.0)
 - **v1.6.0 was published to GitHub Releases on 2026-11-04** as the repo's **Latest release** (tag `v1.6.0`, asset `HeadFi-v1.6.0.apk`, versionCode **41**, run [41881210572](https://github.com/areyouanand/headfi-unofficial/actions/runs/41881210572)). It is the first stable release with the native reader; the three pre-releases stay on the releases page but are superseded.
 - A **`stable` branch** was created at the v1.6.0 commit. `main` continues to receive work; cherry-pick or fast-forward `stable` when releasing.
-- **Version codes are now commit count + 20.** The native reader was developed against a phone with locally side-loaded builds up to code 30, which would have outranked CI's commit-count codes. The offset in `release.yml` keeps published builds above those test installs; it must only ever increase.
+- **Version codes are now the GitHub Actions run number + 100.** Commit-count versioning was not monotonic: a hotfix tagged on `stable` after `main` had advanced could produce a lower code than an already-published APK, which Android refuses to install over it. `GITHUB_RUN_NUMBER` only ever grows, and the +100 offset keeps new builds above the local side-loaded builds (up to code 30) from the native-reader development cycle. It must only ever increase.
 - v1.6.0 also adds first/last pagination, per-post date/time and reaction counts, inline post images, and native thread watching (alerts only / alerts + email / stop watching).
 
 ### Release & Versioning (v1.6.0-beta)
@@ -370,7 +446,7 @@ F:\AI stuff\HeadFi-Org\
 ### Release & Versioning (v1.5.0)
 - Release APKs are versioned from the command line: `./gradlew assembleRelease "-PAPP_VERSION_NAME=1.5.0" "-PAPP_VERSION_CODE=14"`. Quote the arguments in PowerShell, or the dots split the argument and Gradle fails.
 - **v1.5.0 was published to GitHub Releases on 2026-10-23.** The tag `v1.5.0` had never been pushed, so for three days GitHub Releases only carried up to v1.4.0 even though `main` was already at the 1.5.0 commit — **CI only publishes when a `v*` tag is pushed**, and nothing else creates releases. Pushing the annotated tag on `6a2379e` triggered the `Build & Publish APK` workflow (run [39955959029](https://github.com/areyouanand/headfi-unofficial/actions/runs/39955959029)), which released `HeadFi-v1.5.0.apk` as versionCode **15** (the commit count, per `release.yml`). The phone's hand-built install is versionCode 14, so the published APK upgrades over it cleanly (15 > 14, the check described below). The next release just needs a `v*` tag on the release commit — same as v1.0.0 through v1.5.0.
-- The version code must increase on every install. The phone had 1.4.0 (code 13), so a build with the default code 1 was rejected with `INSTALL_FAILED_VERSION_DOWNGRADE`. The code is now the commit count plus a 20-commit offset (see `release.yml`), so check it is above the code already installed before the next CI release.
+- The version code must increase on every install. The phone had 1.4.0 (code 13), so a build with the default code 1 was rejected with `INSTALL_FAILED_VERSION_DOWNGRADE`. `release.yml` now derives it from `GITHUB_RUN_NUMBER + 100`, which is monotonic across tags and branches; the first release after this change jumps well above v1.6.0's code 41 and installs over it cleanly.
 - Installing over an existing release keeps its data. Uninstalling the debug package (`org.headfi.app.debug`) removes its data, including its login.
 - Screenshots: `adb shell screencap -p /sdcard/x.png`, then `adb pull`. If the viewer cannot decode the file, crop it with `System.Drawing` (`powershell -File`, not inline, so PowerShell does not expand the `$` variables).
 
@@ -427,8 +503,11 @@ F:\AI stuff\HeadFi-Org\
     - With a page loaded, open the account sheet and toggle dark mode / ad blocker / header hiding *without* reloading the page. The change should take effect immediately. If nothing happens, the `LaunchedEffect` in `HeadFiWebView.kt` is running against a null `WebView` again.
 
 ### Potential Future Enhancements
-- **Per-thread / watched-thread notifications** — the poller currently only looks at global alert and conversation counts; scraping `/watched/threads` would allow notifying on replies to specific threads.
-- **Notification grouping** — combine the alerts and conversations notifications into a single summary group when both fire in the same run.
+- **Native conversations and bookmarks** — Messages and Bookmarks still hand off to the WebView from the native Home screen. They are the last obvious read-only screens outside the native layer.
+- **Two-pane tablet/foldable layout** — the rail exists, but thread lists and the reader still replace each other. A list-detail split is the natural next adaptive step.
+- **Offline reading** — authenticated XenForo pages are `private, max-age=0`, so the OkHttp cache does not retain them. A small explicit "saved threads" store (or Room) would let watched threads be read offline.
+- **Full string extraction / localization** — almost every Compose label is still a hardcoded English literal (`strings.xml` is largely unused). This is a mechanical but broad pass, best done file by file.
+- **Mark thread/forum read** — `first unread` is implemented; an explicit "Mark read" action would need XenForo's POST route verified on device first.
 
 ### Known Debt & Rough Edges
 - **Bottom bar label width.** Four items plus Profile fit the labels at typical phone widths, but "Classifieds" and "Bookmarks" may still ellipsize on screens narrower than about 360 dp. The next step would be to shorten the labels or drop the cap to three.
